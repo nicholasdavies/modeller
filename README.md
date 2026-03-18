@@ -1,0 +1,25 @@
+
+# modeller
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of modeller is to ...
+
+## Installation
+
+You can install the development version of modeller like so:
+
+``` r
+# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+```
+
+## Example
+
+This is a basic example which shows you how to solve a common problem:
+
+``` r
+library(modeller)
+## basic example code
+```
+
