@@ -16,6 +16,10 @@ devtools::document() # delete NAMESPACE before first time
 # Set up git
 usethis::git_vaccinate()
 usethis::use_git()
+
+
+#### LEFT OFF HERE ######
+
 usethis::use_github()
 usethis::use_github_action()
 
@@ -31,11 +35,14 @@ usethis::use_coverage()
 # ADDING ELEMENTS
 # Import package
 usethis::use_package("rlang")
-usethis::use_package("elixir")
-usethis::use_package("luajr")
+usethis::use_package("deSolve")
+usethis::use_package("adaptivetau")
+usethis::use_package("shiny")
+usethis::use_package("inshiny")
+usethis::use_package("bslib")
 
 # Add vignette
-usethis::use_vignette("qrst")
+usethis::use_vignette("modeller")
 
 
 # BUILD CYCLE
