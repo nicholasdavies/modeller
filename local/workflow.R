@@ -40,6 +40,13 @@ usethis::use_package("adaptivetau")
 usethis::use_package("shiny")
 usethis::use_package("inshiny")
 usethis::use_package("bslib")
+usethis::use_package("cowplot")
+
+usethis::use_package("data.table")
+usethis::use_package("dplyr")
+usethis::use_package("ggplot2")
+usethis::use_package("tidyr")
+usethis::use_package("scales")
 
 # Add vignette
 usethis::use_vignette("modeller")

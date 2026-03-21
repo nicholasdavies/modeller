@@ -4,7 +4,8 @@ init = list(
     S = 99999,
     E = 0,
     I = 1,
-    R = 0
+    R = 0,
+    total_infections = 0
 )
 
 params = list(
@@ -24,8 +25,9 @@ model = function()
     dE =  beta * I/N * S - E * infectious_rate
     dI =                   E * infectious_rate - I * rec_rate
     dR =                                         I * rec_rate
+    dC =  beta * I/N * S
 
-    return (list(dS, dE, dI, dR))
+    return (list(dS, dE, dI, dR, dC))
 }
 
 times = list(
@@ -33,5 +35,4 @@ times = list(
     stop = 150
 )
 
-ode_model(model, init, params, times)
-
+ode_model(init, params, model, times)

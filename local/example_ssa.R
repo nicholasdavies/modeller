@@ -3,16 +3,23 @@
 library(modeller)
 
 init = list(
-    S = 99999,
+    S = 999,
     E = 0,
     I = 1,
-    R = 0
+    R = 0,
+    total_infections = 0
 )
 
 params = list(
     latent_period = 8,
     infectious_period = 7,
     R0 = 13
+)
+
+transitions = list(
+    c(S = -1, E = +1, total_infections = +1),
+    c(E = -1, I = +1),
+    c(I = -1, R = +1)
 )
 
 model = function()
@@ -22,18 +29,16 @@ model = function()
     beta = R0 / infectious_period
     N = S + E + I + R
 
-    dS = -beta * I/N * S
-    dE =  beta * I/N * S - E * infectious_rate
-    dI =                   E * infectious_rate - I * rec_rate
-    dR =                                         I * rec_rate
+    xS_E = beta * I/N * S
+    xE_I = infectious_rate * E
+    xI_R = rec_rate * I
 
-    return (list(dS, dE, dI, dR))
+    return (list(xS_E, xE_I, xI_R))
 }
 
 times = list(
-    start = 0,
-    stop = 150
+    duration = 150
 )
 
-ssa_model(model, init, params, times)
+ssa_model(init, params, transitions, model, times)
 
