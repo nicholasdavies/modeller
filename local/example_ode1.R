@@ -1,10 +1,7 @@
-# SSA EXAMPLE
-# TODO click on plot gives total_infections, not infections
-
 library(modeller)
 
 init = list(
-    S = 999,
+    S = 99999,
     E = 0,
     I = 1,
     R = 0,
@@ -17,12 +14,6 @@ params = list(
     R0 = 13
 )
 
-transitions = list(
-    c(S = -1, E = +1, total_infections = +1),
-    c(E = -1, I = +1),
-    c(I = -1, R = +1)
-)
-
 equations = function()
 {
     infectious_rate = 1 / latent_period
@@ -30,18 +21,21 @@ equations = function()
     beta = R0 / infectious_period
     N = S + E + I + R
 
-    xS_E = beta * I/N * S
-    xE_I = infectious_rate * E
-    xI_R = rec_rate * I
+    dS = -beta * I/N * S
+    dE =  beta * I/N * S - infectious_rate * E
+    dI =                   infectious_rate * E - rec_rate * I
+    dR =                                         rec_rate * I
+    dC =  beta * I/N * S
 
-    return (list(xS_E, xE_I, xI_R))
+    return (list(dS, dE, dI, dR, dC))
 }
 
 times = list(
-    duration = 150
+    start = 0,
+    stop = 150
 )
 
-m = ssa_model(init, params, transitions, equations, times)
+m = ode1_model(init, params, equations, times)
 result = run_model(m)
 plot(result)
 show_model(m)

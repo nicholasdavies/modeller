@@ -1,19 +1,47 @@
-model_app = function(run_model, init, params, times, extra_elements = NULL,
-    max_display_rows = 5000)
+#' Launch interactive model explorer
+#'
+#' Opens a Shiny app for interactively exploring a model. Provides controls
+#' for adjusting initial conditions, parameters, and solver settings, with
+#' live-updating plots and data tables. Observed data can be overlaid for
+#' visual comparison.
+#'
+#' @param model A model object created by [ode_model()] or [ssa_model()].
+#' @param data Optional data frame to overlay on the plot. Should contain a
+#'   time column and one or more columns matching compartment or incidence
+#'   names. Can also be loaded interactively via the Data tab.
+#' @param max_display_rows Maximum rows shown in the Table tab (default
+#'   5000). Full data is always available via CSV export.
+#'
+#' @return A Shiny app object (launched when printed).
+#'
+#' @examples
+#' m = ode_model(
+#'     init = list(S = 999, I = 1, R = 0),
+#'     params = list(beta = 0.3, gamma = 0.1),
+#'     model = function() list(-beta * S * I, beta * S * I - gamma * I, gamma * I),
+#'     times = list(duration = 50)
+#' )
+#' if (interactive()) show_model(m)
+#'
+#' @export
+show_model = function(model, data = NULL, max_display_rows = 5000)
 {
+    init = model$init
+    params = model$params
+    extra_elements = model$shiny$ui
+
     # Create Shiny app
 
-    # TODO make sure init is a list . . .
-    init_elements = list(shiny::h5("Initial conditions"))
+    init_elements = list(shiny::tags$p(shiny::tags$strong("Initial conditions")))
     for (n in names(init)) {
+        if (startsWith(n, "total_")) next
         id = paste0("model_init_", n)
         init_elements[[length(init_elements) + 1]] = inshiny::inline(n, "(0) = ",
             inshiny::inline_number(id, value = init[[n]],
                 placeholder = init[[n]], min = 0, arrows = FALSE))
     }
 
-    # TODO make sure params is a list . . .
-    param_elements = list(shiny::h5("Parameters"))
+    param_elements = list(shiny::tags$p(shiny::tags$strong("Parameters")))
     for (n in names(params)) {
         id = paste0("model_param_", n)
         param_elements[[length(param_elements) + 1]] = inshiny::inline(n, " = ",
@@ -24,10 +52,8 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
     # Colour palette choices
     palette_choices = c(
         "Okabe-Ito", "R4", "Tableau 10", "Dark2", "Set1", "Paired",
-        "viridis", "magma", "plasma", "inferno"
+        "ggplot2", "viridis", "magma", "plasma", "inferno"
     )
-    viridis_palettes = c("viridis", "magma", "plasma", "inferno")
-    base_palettes = c("Okabe-Ito", "R4", "Tableau 10")
 
     # UI
     ui = bslib::page_sidebar(
@@ -47,31 +73,27 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
             });
         ")),
         bslib::navset_underline(
-            bslib::nav_panel("Graph",
+            bslib::nav_panel("Plot",
                 shiny::plotOutput("main_plot", click = "main_plot_click"),
                 shiny::uiOutput("coords_box"),
-                bslib::card(class = "mt-2",
-                    bslib::card_header("Graph options"),
-                    bslib::card_body(
-                        shiny::uiOutput("compartment_toggles"),
-                        inshiny::inline("Colour palette: ",
-                            inshiny::inline_select("colour_palette", palette_choices, selected = "Set1"),
-                            " ", shiny::uiOutput("palette_preview", inline = TRUE)),
-                        inshiny::inline("Legend: ",
-                            inshiny::inline_select("legend_position",
-                                c("right", "left", "top", "bottom", "none"),
-                                selected = "right")),
-                        inshiny::inline("Export as ",
-                            inshiny::inline_select("export_format", c("PDF", "PNG"), selected = "PDF"),
-                            ", ",
-                            inshiny::inline_number("export_width", value = 20, min = 1, arrows = FALSE),
-                            " \u00d7 ",
-                            inshiny::inline_number("export_height", value = 12, min = 1, arrows = FALSE),
-                            " cm"),
-                        shiny::div(shiny::downloadButton("export_plot", "Export graph",
-                            class = "btn-sm"))
-                    )
-                )
+                shiny::h5("Plot options", class = "mt-3"),
+                shiny::uiOutput("compartment_toggles"),
+                inshiny::inline("Colour palette: ",
+                    inshiny::inline_select("colour_palette", palette_choices, selected = "Set1"),
+                    " ", shiny::uiOutput("palette_preview", inline = TRUE)),
+                inshiny::inline("Legend: ",
+                    inshiny::inline_select("legend_position",
+                        c("right", "left", "top", "bottom", "none"),
+                        selected = "right")),
+                inshiny::inline("Export as ",
+                    inshiny::inline_select("export_format", c("PDF", "PNG"), selected = "PDF"),
+                    ", ",
+                    inshiny::inline_number("export_width", value = 20, min = 1, arrows = FALSE),
+                    " \u00d7 ",
+                    inshiny::inline_number("export_height", value = 12, min = 1, arrows = FALSE),
+                    " cm"),
+                shiny::div(shiny::downloadButton("export_plot", "Export plot",
+                    class = "btn-sm"))
             ),
             bslib::nav_panel("Table",
                 shiny::div(style = "margin: 10px 0px 10px 0px",
@@ -80,44 +102,43 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
                 shiny::uiOutput("table_cap")
             ),
             bslib::nav_panel("Data",
-                shiny::fileInput("data_upload", "Upload CSV file", accept = ".csv"),
+                shiny::fileInput("data_upload", "Load CSV file", accept = ".csv"),
                 shiny::uiOutput("data_time_col_ui"),
                 shiny::tableOutput("data_preview")
             )
         ),
-        sidebar = bslib::sidebar(title = "Settings", open = "always",
-            init_elements, shiny::br(), param_elements, shiny::br(),
-            extra_elements)
+        sidebar = bslib::sidebar(title = "Model explorer", open = "always",
+            init_elements, param_elements, extra_elements)
     )
 
     server = function(input, output) {
         selected_time = shiny::reactiveVal()
         model_data = shiny::reactiveVal()
-        imported_data = shiny::reactiveVal()
+        imported_data = shiny::reactiveVal(data)
         last_plot = shiny::reactiveVal()
 
         # Click handling: snap to nearest point in the data
         shiny::observeEvent(input$main_plot_click, {
-            data = model_data()
-            shiny::req(data)
+            d = model_data()
+            shiny::req(d)
             x = input$main_plot_click$x
-            idx = which.min(abs(data$t - x))
-            selected_time(data$t[idx])
+            idx = which.min(abs(d$t - x))
+            selected_time(d$t[idx])
         })
 
         # Arrow keys step to next/previous data point
         shiny::observeEvent(input$arrow_key, {
             current = selected_time()
             shiny::req(current)
-            data = model_data()
-            shiny::req(data)
-            idx = which.min(abs(data$t - current))
+            d = model_data()
+            shiny::req(d)
+            idx = which.min(abs(d$t - current))
             if (input$arrow_key$key == "ArrowRight") {
-                idx = min(idx + 1L, nrow(data))
+                idx = min(idx + 1L, nrow(d))
             } else {
                 idx = max(idx - 1L, 1L)
             }
-            selected_time(data$t[idx])
+            selected_time(d$t[idx])
         })
 
         shiny::observeEvent(input$clear_coords, {
@@ -145,119 +166,47 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
 
         # Shared reactive: run model with current inputs
         current_data = shiny::reactive({
-            init_list = lapply(names(init), function(n) input[[paste0("model_init_", n)]])
+            init_list = lapply(names(init), function(n) {
+                if (startsWith(n, "total_")) init[[n]] else input[[paste0("model_init_", n)]]
+            })
             names(init_list) = names(init)
 
             params_list = lapply(names(params), function(n) input[[paste0("model_param_", n)]])
             names(params_list) = names(params)
 
-            run_model(init_list, params_list, times, input)
+            model$shiny$run(model, init_list, params_list, input)
         })
-
-        # All series names (compartments + incidence), updated when model changes
-        all_series = shiny::reactiveVal()
 
         # Render compartment toggle checkboxes
         output$compartment_toggles = shiny::renderUI({
-            data = current_data()
-            shiny::req(data)
-            total_cols = grep("^total_", names(data), value = TRUE)
-            series = setdiff(names(data), c("t", total_cols))
+            d = current_data()
+            shiny::req(d)
+            total_cols = grep("^total_", names(d), value = TRUE)
+            series = setdiff(names(d), c("t", total_cols))
             inc_names = sub("^total_", "", total_cols)
             series = c(series, inc_names)
-            all_series(series)
 
             shiny::checkboxGroupInput("visible_series", NULL,
                 choices = series, selected = series, inline = TRUE)
         })
 
         output$main_plot = shiny::renderPlot({
-            data = current_data()
-            model_data(data)
+            d = current_data()
+            model_data(d)
 
-            # Separate total_ columns for incidence overlay
-            total_cols = grep("^total_", names(data), value = TRUE)
-            plot_cols = setdiff(names(data), total_cols)
-            main_data = data[plot_cols]
-
-            # Determine visible series
-            visible = input$visible_series %||% character(0)
-
-            # Plot results
-            plot_data = tidyr::pivot_longer(main_data, cols = -1)
-            plot_data$name = factor(plot_data$name, unique(plot_data$name))
-            plot_data = plot_data[plot_data$name %in% visible, ]
-
-            compartment_cols = setdiff(names(main_data), "t")
-            all_integer = all(main_data[compartment_cols] == round(main_data[compartment_cols]))
-            geom = if (all_integer) ggplot2::geom_step else ggplot2::geom_line
-
-            p = ggplot2::ggplot(plot_data) +
-                geom(ggplot2::aes(x = t, y = value, colour = name), linewidth = 1) +
-                ggplot2::geom_vline(xintercept = selected_time()) +
-                ggplot2::labs(x = "Time", y = NULL, colour = NULL) +
-                nice_scales +
-                cowplot::theme_cowplot(font_size = 12) +
-                ggplot2::theme(
-                    axis.line = ggplot2::element_line(linewidth = 0.3),
-                    axis.ticks = ggplot2::element_line(linewidth = 0.3),
-                    legend.position = input$legend_position %||% "right"
-                )
-
-            # Overlay incidence from total_ columns
-            if (length(total_cols) > 0) {
-                mat = as.matrix(data[c("t", total_cols)])
-                grid_step = if (attr(data, "dt") <= 1) 1 else attr(data, "dt")
-                grid = seq(min(mat[, 1]), max(mat[, 1]), by = grid_step)
-                summ = grid_summarize(mat, grid)
-                inc_data = data.frame(t = grid)
-                for (col in total_cols) {
-                    new_name = sub("^total_", "", col)
-                    vals = summ[, col] / grid_step
-                    inc_data[[new_name]] = c(vals[1], diff(vals))
-                }
-                inc_long = tidyr::pivot_longer(inc_data, cols = -1)
-                inc_long = inc_long[inc_long$name %in% visible, ]
-                all_levels = union(levels(plot_data$name), unique(inc_long$name))
-                plot_data$name = factor(plot_data$name, levels = all_levels)
-                inc_long$name = factor(inc_long$name, levels = all_levels)
-                if (nrow(inc_long) > 0) {
-                    p = p + geom(data = inc_long,
-                        ggplot2::aes(x = t, y = value, colour = name), linewidth = 1)
-                }
-            }
-
-            # Overlay imported data
             imported = imported_data()
-            if (!is.null(imported)) {
-                time_col = input$data_time_col
-                shiny::req(time_col)
-                other_cols = setdiff(names(imported), time_col)
-                overlay = tidyr::pivot_longer(imported, cols = dplyr::all_of(other_cols),
-                    names_to = "name", values_to = "value")
-                overlay$name = factor(overlay$name, levels = levels(plot_data$name))
-                overlay = overlay[overlay$name %in% visible, ]
-                p = p + ggplot2::geom_point(data = overlay,
-                    ggplot2::aes(x = .data[[time_col]], y = value, colour = name),
-                    size = 2.5) +
-                    ggplot2::geom_point(data = overlay,
-                    ggplot2::aes(x = .data[[time_col]], y = value),
-                    shape = 1, colour = "black", size = 2.5, stroke = 0.4)
-            }
+            time_col = if (!is.null(imported)) input$data_time_col %||% "t" else "t"
+            if (!is.null(imported)) shiny::req(input$data_time_col)
 
-            # Apply colour palette
-            palette = input$colour_palette
-            if (!is.null(palette)) {
-                if (palette %in% viridis_palettes) {
-                    p = p + ggplot2::scale_colour_viridis_d(option = palette)
-                } else if (palette %in% base_palettes) {
-                    cols = unname(palette.colors(palette = palette))
-                    p = p + ggplot2::scale_colour_manual(values = cols)
-                } else {
-                    p = p + ggplot2::scale_colour_brewer(palette = palette)
-                }
-            }
+            shiny::req(input$visible_series)
 
+            p = plot(d,
+                series = input$visible_series,
+                overlay = imported,
+                palette = input$colour_palette %||% "Set1",
+                legend = input$legend_position %||% "right",
+                time_col = time_col,
+                vline = selected_time())
             last_plot(p)
             p
         })
@@ -266,13 +215,8 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
             palette = input$colour_palette
             shiny::req(palette)
             n = 6
-            if (palette %in% viridis_palettes) {
-                cols = scales::viridis_pal(option = palette)(n)
-            } else if (palette %in% base_palettes) {
-                cols = unname(palette.colors(n, palette = palette))
-            } else {
-                cols = RColorBrewer::brewer.pal(n, palette)
-            }
+            palette_fn = resolve_palette(palette)
+            cols = palette_fn(n)
             swatches = lapply(cols, function(col) {
                 shiny::tags$span(style = paste0(
                     "display:inline-block;width:12px;height:12px;",
@@ -283,25 +227,25 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
         })
 
         output$model_table = shiny::renderTable({
-            data = current_data()
-            if (nrow(data) > max_display_rows) data = data[seq_len(max_display_rows), ]
+            d = current_data()
+            if (nrow(d) > max_display_rows) d = d[seq_len(max_display_rows), ]
             # Format each column: 0 decimal places if integer-valued, 2 otherwise
-            for (col in names(data)) {
-                if (all(data[[col]] == round(data[[col]]), na.rm = TRUE)) {
-                    data[[col]] = formatC(data[[col]], format = "f", digits = 0, big.mark = ",")
+            for (col in names(d)) {
+                if (all(d[[col]] == round(d[[col]]), na.rm = TRUE)) {
+                    d[[col]] = formatC(d[[col]], format = "f", digits = 0, big.mark = ",")
                 } else {
-                    data[[col]] = formatC(data[[col]], format = "f", digits = 2, big.mark = ",")
+                    d[[col]] = formatC(d[[col]], format = "f", digits = 2, big.mark = ",")
                 }
             }
-            data
+            d
         })
 
         output$table_cap = shiny::renderUI({
-            data = current_data()
-            if (nrow(data) > max_display_rows) {
+            d = current_data()
+            if (nrow(d) > max_display_rows) {
                 shiny::p(style = "color: #888; font-style: italic;",
                     paste0("Display capped at ", format(max_display_rows, big.mark = ","),
-                        " rows (", format(nrow(data), big.mark = ","), " total). ",
+                        " rows (", format(nrow(d), big.mark = ","), " total). ",
                         "Use Export CSV for full data."))
             }
         })
@@ -315,7 +259,7 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
             }
         )
 
-        # Graph export
+        # Plot export
         output$export_plot = shiny::downloadHandler(
             filename = function() {
                 ext = tolower(input$export_format)
@@ -331,10 +275,10 @@ model_app = function(run_model, init, params, times, extra_elements = NULL,
         output$coords_box = shiny::renderUI({
             t_sel = selected_time()
             shiny::req(t_sel)
-            data = model_data()
-            shiny::req(data)
+            d = model_data()
+            shiny::req(d)
 
-            row = data[data$t == t_sel, , drop = FALSE]
+            row = d[d$t == t_sel, , drop = FALSE]
             if (nrow(row) == 0) return(NULL)
 
             compartments = names(row)[names(row) != "t"]

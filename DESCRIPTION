@@ -1,25 +1,30 @@
 Package: modeller
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Interactive Infectious Disease Modelling
 Version: 0.1.0
 Authors@R: c(
     person(
-      "Jane", "Doe",
-      email = "jane@example.com",
+      "Nick", "Davies",
+      email = "nicholas.davies@lshtm.ac.uk",
       role = c("aut", "cre")
     )
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
+Description: Build, run, and interactively explore compartmental infectious
+    disease models. Supports deterministic (ODE), stochastic (SSA), and
+    discrete-time (difference equation) solvers with a simple model
+    specification syntax. Includes an interactive Shiny app
+    for adjusting parameters and initial conditions, visualising dynamics, and
+    overlaying data. Developed for the Modelling and the Dynamics of Infectious
+    Diseases course at the London School of Hygiene & Tropical Medicine.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
-Suggests: 
+Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-Imports: 
+Imports:
     adaptivetau,
     bslib,
     cowplot,
@@ -31,4 +36,5 @@ Imports:
     rlang,
     scales,
     shiny,
-    tidyr
+    tidyr,
+    utils

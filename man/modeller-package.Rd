@@ -4,12 +4,31 @@
 \name{modeller-package}
 \alias{modeller}
 \alias{modeller-package}
-\title{modeller: What the Package Does (Title Case)}
+\title{Interactive Infectious Disease Modelling}
 \description{
-More about what it does (maybe more than one line). Continuation lines should be indented.
+Build, run, and interactively explore compartmental infectious disease
+models using deterministic (ODE), stochastic (SSA), and discrete-time
+(difference equation) solvers.
 }
+\details{
+The typical workflow is:
+\enumerate{
+\item Define a model with \code{\link[=ode_model]{ode_model()}}, \code{\link[=ssa_model]{ssa_model()}}, or \code{\link[=difference_model]{difference_model()}}
+\item Run it with \code{\link[=run_model]{run_model()}}
+\item Visualise results with \link[=plot.model_result]{plot()}
+\item Explore interactively with \code{\link[=show_model]{show_model()}}
+}
+}
+\section{Model specification}{
+
+Equations are written as plain R functions that reference compartment and
+parameter names directly. The package transforms these into the form needed
+by the underlying solvers (\link{deSolve} for ODEs, \link{adaptivetau} for SSA,
+simple iteration for difference equations).
+}
+
 \author{
-\strong{Maintainer}: Jane Doe \email{jane@example.com}
+\strong{Maintainer}: Nick Davies \email{nicholas.davies@lshtm.ac.uk}
 
 }
 \keyword{internal}

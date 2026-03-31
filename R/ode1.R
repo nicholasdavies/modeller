@@ -33,7 +33,7 @@
 #'   and [show_model()] to launch the interactive app.
 #'
 #' @examples
-#' m = ode_model(
+#' m = ode1_model(
 #'     init = list(S = 999, I = 1, R = 0),
 #'     params = list(beta = 0.3, gamma = 0.1),
 #'     equations = function() {
@@ -51,22 +51,15 @@
 #' plot(result)
 #'
 #' @export
-ode_model = function(init, params, equations, times, options = list())
+ode1_model = function(init, params, equations, times, options = list())
 {
     validate_inputs(init, params, equations, times)
 
     # Put equations function into correct form
     formals(equations) = alist(t =, .state =, .params =)
-    eq = body(equations)
-    eq = elixir::expr_replace(eq, { d(`.A:name`) <- ..B },
-        { .dlist[[as.character(quote(.A))]] <<- ..B })
-    eq = elixir::expr_replace(eq, { d(`.A:name`) = ..B },
-        { .dlist[[as.character(quote(.A))]] <<- ..B })
-
     body(equations) = rlang::expr({
-        .dlist = init
-        with(as.list(c(.state, .params)), !!eq)
-        return (list(unlist(.dlist)))
+        .x <- with(as.list(c(.state, .params)), !!body(equations))
+        return (list(unlist(.x)))
     })
 
     # Process times
@@ -103,15 +96,15 @@ ode_model = function(init, params, equations, times, options = list())
     }
 
     structure(list(
-        type = "ODE",
+        type = "ODE1",
         init = init, params = params, equations = equations, times = times,
         options = modifyList(list(method = "lsoda"), options),
         shiny = list(ui = shiny_ui, run = shiny_run)
-    ), class = c("ode_model", "modeller"))
+    ), class = c("ode1_model", "modeller"))
 }
 
 #' @export
-run_model.ode_model = function(model, init = NULL, params = NULL,
+run_model.ode1_model = function(model, init = NULL, params = NULL,
     times = NULL, options = NULL, ...)
 {
     init = modifyList(model$init, init %||% list())
