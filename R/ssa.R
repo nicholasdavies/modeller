@@ -16,9 +16,6 @@
 #'   (e.g. `list(S = 999, I = 1, R = 0)`).
 #' @param params Named list of parameter values (e.g.
 #'   `list(beta = 0.3, gamma = 0.1)`).
-#' @param transitions List of named integer vectors, one per event type.
-#'   Each vector specifies the change in compartment values when that event
-#'   occurs (e.g. `c(S = -1, I = +1)` for an infection event).
 #' @param equations A function with no arguments. Inside the function body,
 #'   write equations using compartment and parameter names as if they were
 #'   ordinary variables. Return a list giving the rate of each transition, in
@@ -62,23 +59,36 @@
 #' plot(result)
 #'
 #' @export
-ssa_model = function(init, params, transitions, equations, times, options = list())
+ssa_model = function(init, params, equations, times, options = list())
 {
     validate_inputs(init, params, equations, times)
-    if (!is.list(transitions) || !all(vapply(transitions, is.numeric, logical(1))))
-        stop("`transitions` must be a list of named numeric vectors", call. = FALSE)
-    trans_names = unique(unlist(lapply(transitions, names)))
-    unknown = setdiff(trans_names, names(init))
-    if (length(unknown) > 0)
-        stop("transitions refer to unknown compartments: ",
-            paste(unknown, collapse = ", "), call. = FALSE)
+
+    # Build transitions and edit body of equations function
+    eq = body(equations)
+    txs = elixir::expr_match(eq, { tx(..A -> ..B) = ..C } ? { tx(..A -> ..B) <- ..C })
+    transitions = list()
+
+    for (i in seq_along(txs)) {
+        tx = txs[[i]]
+        # TODO this will not work for multi compartments
+        increments = structure(rep(0, length(init)), names = names(init))
+        # TODO check all names for validity
+        # TODO allow pluses, multiples
+        increments[[as.character(tx$A)]] = -1
+        increments[[as.character(tx$B)]] = +1
+        # TODO the id has to be by transition components, not just counting up by one
+        eq[[tx$loc]] = rlang::expr(.tvec[[!!i]] <<- !!tx$C)
+
+        transitions[[i]] = increments
+    }
 
     # Put equations function into correct form
     formals(equations) = alist(.state =, .params =, t =)
     body(equations) = rlang::expr({
+        .tvec = numeric(!!length(transitions))
         t = t + .params$.tstart
-        .x = with(as.list(c(.state, .params)), !!body(equations))
-        return (unlist(.x))
+        with(as.list(c(.state, .params)), !!eq)
+        return (.tvec)
     })
 
     # Process times

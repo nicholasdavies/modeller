@@ -58,9 +58,16 @@ difference_model = function(init, params, equations, times, options = list())
 
     # Put equations function into correct form
     formals(equations) = alist(t =, .state =, .params =)
+    eq = body(equations)
+    eq = elixir::expr_replace(eq, { new(`.A:name`) <- ..B },
+        { .nlist[[as.character(quote(.A))]] <<- ..B })
+    eq = elixir::expr_replace(eq, { new(`.A:name`) = ..B },
+        { .nlist[[as.character(quote(.A))]] <<- ..B })
+
     body(equations) = rlang::expr({
-        .x <- with(c(list(dt = .params$.dt), as.list(c(.state, .params))), !!body(equations))
-        return (unlist(.x))
+        .nlist = init
+        with(c(list(dt = .params$.dt), .state, .params), !!eq)
+        return (unlist(.nlist))
     })
 
     # Process times

@@ -65,7 +65,7 @@ ode_model = function(init, params, equations, times, options = list())
 
     body(equations) = rlang::expr({
         .dlist = init
-        with(as.list(c(.state, .params)), !!eq)
+        with(c(.state, .params), !!eq)
         return (list(unlist(.dlist)))
     })
 

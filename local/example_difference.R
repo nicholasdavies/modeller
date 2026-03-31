@@ -27,13 +27,11 @@ equations = function()
     becoming_infectious = infectious_rate * E * dt
     recoveries = rec_rate * I * dt
 
-    list(
-        S = S - infections,
-        E = E + infections - becoming_infectious,
-        I = I + becoming_infectious - recoveries,
-        R = R + recoveries,
-        total_infections = total_infections + infections
-    )
+    new(S) = S - infections
+    new(E) = E + infections - becoming_infectious
+    new(I) = I + becoming_infectious - recoveries
+    new(R) = R + recoveries
+    new(total_infections) = total_infections + infections
 }
 
 times = list(

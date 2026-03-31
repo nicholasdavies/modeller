@@ -4,7 +4,7 @@
 \alias{ssa_model}
 \title{Create a stochastic SSA model}
 \usage{
-ssa_model(init, params, transitions, equations, times, options = list())
+ssa_model(init, params, equations, times, options = list())
 }
 \arguments{
 \item{init}{Named list of initial compartment values, typically integers
@@ -12,10 +12,6 @@ ssa_model(init, params, transitions, equations, times, options = list())
 
 \item{params}{Named list of parameter values (e.g.
 \code{list(beta = 0.3, gamma = 0.1)}).}
-
-\item{transitions}{List of named integer vectors, one per event type.
-Each vector specifies the change in compartment values when that event
-occurs (e.g. \code{c(S = -1, I = +1)} for an infection event).}
 
 \item{equations}{A function with no arguments. Inside the function body,
 write equations using compartment and parameter names as if they were
