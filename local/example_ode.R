@@ -1,3 +1,10 @@
+# multiple plots? -- in code?
+# fitting -- in code
+# X euler timestep blows up axes with large time step
+# X don't hide negative outputs.
+# X Detect unusual outputs
+# X Handle warnings or errors
+
 # SEIR model for measles
 library(modeller)
 

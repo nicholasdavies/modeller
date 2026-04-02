@@ -136,3 +136,23 @@ resolve_times = function(base, overrides = list(), has_step = FALSE)
     if (has_step) times$step = times$step %||% 1
     times
 }
+
+# Helper to detect and issue a warning about some problem with the model
+# results.
+detect_problem = function(result, predicate, description, fix)
+{
+    problematic = apply(result[, -1], 2, predicate)
+    if (any(problematic, na.rm = TRUE)) {
+        first_row = which(problematic, arr.ind = TRUE)[1, 1]
+        warning(description, " detected at time t = ",
+            result[first_row, 1], ". ", fix, call. = FALSE)
+    }
+}
+
+standard_checks = function(result)
+{
+    detect_problem(result, \(x) x < 0, "Negative compartment",
+        "This may be because because parameters or initial conditions are negative, step size is too small, or the model logic is incorrect.")
+    detect_problem(result, \(x) !is.finite(x), "Non-finite number",
+        "This may be because the model is generating NAs or conducting undefined mathematical operations (such as log(-1) or division by zero).")
+}

@@ -1,12 +1,50 @@
 nice_breaks = scales::breaks_extended(Q = c(1, 5, 2))
-nice_labels = scales::label_number(big.mark = ",",
-    scale_cut = c(" " = 0, " million" = 1e6, " billion" = 1e9, " trillion" = 1e12))
+# nice_labels = scales::label_number(big.mark = ",",
+#     scale_cut = c(" " = 0, " million" = 1e6, " billion" = 1e9, " trillion" = 1e12))
+
+nice_labels = function(x)
+{
+    dmax = 1e15
+    dmin = 1e-3
+
+    resolution = function(x)
+    {
+        if (length(x)) {
+            for (d in 0:5) {
+                if (all(abs(round(x, d) - x) < .Machine$double.eps * 100)) {
+                    return (10^-d)
+                }
+            }
+        }
+        1e-6
+    }
+    x_valid = x[!is.na(x)]
+    res = resolution(x_valid[abs(x_valid) < dmax & abs(x_valid) > dmin & x_valid != 0])
+
+    sc = c(" " = 0, " million" = 1e6, " billion" = 1e9, " trillion" = 1e12)
+    names(sc)[1] = ""
+    labels = lapply(x, function(x) {
+        if (is.na(x)) {
+            return ("")
+        } else if (x == 0) {
+            0
+        } else if ((abs(x) < dmax && abs(x) > dmin)) {
+            scales::number(x, accuracy = res, big.mark = ",", scale_cut = sc)
+        } else {
+            exponent = floor(log10(abs(x)))
+            mantissa = x / (10^exponent)
+            rlang::expr(!!mantissa %*% 10^!!exponent)
+        }
+    })
+
+    do.call(expression, labels)
+}
 
 nice_scales = list(
     ggplot2::scale_x_continuous(breaks = nice_breaks, labels = nice_labels,
-        expand = ggplot2::expansion(add = 0)),
+        expand = ggplot2::expansion(mult = 1e-6)),
     ggplot2::scale_y_continuous(breaks = nice_breaks, labels = nice_labels,
-        expand = ggplot2::expansion(mult = c(0, 0.02)))
+        expand = ggplot2::expansion(mult = c(1e-3, 0.02)))
 )
 
 resolve_palette = function(palette) {

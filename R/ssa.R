@@ -157,6 +157,9 @@ run_model.ssa_model = function(model, init = NULL, params = NULL,
     attr(data, "dt") = 0
     attr(data, "geom") = "step"
     class(data) = c("model_result", class(data))
+
+    standard_checks(data)
+
     data
 }
 

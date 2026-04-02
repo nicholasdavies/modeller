@@ -59,7 +59,10 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
     ui = bslib::page_sidebar(
         theme = bslib::bs_theme(version = 5, preset = "flatly", font_scale = 0.9),
         fillable = FALSE,
-        shiny::tags$style(".checkbox-inline { margin-right: 0.5em; }"),
+        shiny::tags$style(
+            ".checkbox-inline { margin-right: 0.5em; }",
+            ".alert-dismissible .btn-close { top: 0; transform: none; padding: 0.75rem; }"
+        ),
         # Arrow key listener (only when no input field is focused)
         shiny::tags$script(shiny::HTML("
             $(document).on('keydown', function(e) {
@@ -75,6 +78,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
         bslib::navset_underline(
             bslib::nav_panel("Plot",
                 shiny::plotOutput("main_plot", click = "main_plot_click"),
+                shiny::uiOutput("message_box"),
                 shiny::uiOutput("coords_box"),
                 shiny::h5("Plot options", class = "mt-3"),
                 shiny::uiOutput("compartment_toggles"),
@@ -116,6 +120,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
         model_data = shiny::reactiveVal()
         imported_data = shiny::reactiveVal(data)
         last_plot = shiny::reactiveVal()
+        model_messages = shiny::reactiveVal(NULL)
 
         # Click handling: snap to nearest point in the data
         shiny::observeEvent(input$main_plot_click, {
@@ -143,6 +148,10 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
 
         shiny::observeEvent(input$clear_coords, {
             selected_time(NULL)
+        })
+
+        shiny::observeEvent(input$clear_messages, {
+            model_messages(NULL)
         })
 
         # Data import
@@ -174,7 +183,24 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             params_list = lapply(names(params), function(n) input[[paste0("model_param_", n)]])
             names(params_list) = names(params)
 
-            model$shiny$run(model, init_list, params_list, input)
+            model_messages(NULL)
+            msgs = character(0)
+            result = withCallingHandlers(
+                tryCatch(
+                    model$shiny$run(model, init_list, params_list, input),
+                    error = function(e) {
+                        model_messages(list(type = "error", text = conditionMessage(e)))
+                        NULL
+                    }
+                ),
+                warning = function(w) {
+                    msgs[[length(msgs) + 1L]] <<- conditionMessage(w)
+                    model_messages(list(type = "warning", text = paste(msgs, collapse = "\n")))
+                    invokeRestart("muffleWarning")
+                }
+            )
+
+            result
         })
 
         # Render compartment toggle checkboxes
@@ -271,6 +297,20 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             }
         )
 
+        # Message box: shows warnings/errors from model run
+        output$message_box = shiny::renderUI({
+            msg = model_messages()
+            shiny::req(msg)
+            alert_class = if (msg$type == "error") "alert-danger" else "alert-warning"
+            prefix = if (msg$type == "error") "Error: " else "Warning: "
+            shiny::div(class = paste("alert", alert_class, "alert-dismissible mb-2 mt-2 py-2"),
+                style = "font-size: 0.9em; max-height: 200px; overflow-y: auto;",
+                shiny::tags$span(shiny::tags$strong(prefix), msg$text),
+                shiny::tags$button(type = "button", class = "btn-close",
+                    onclick = "Shiny.setInputValue('clear_messages', Math.random(), {priority: 'event'});")
+            )
+        })
+
         # Coordinates box: shows compartment values at selected time
         output$coords_box = shiny::renderUI({
             t_sel = selected_time()
@@ -286,7 +326,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             coord_text = paste0("t = ", t_sel, ":\n", paste(vals, collapse = ",\n"))
 
             shiny::div(class = "alert alert-secondary alert-dismissible mb-2 mt-2 py-2",
-                style = "font-size: 0.9em;",
+                style = "font-size: 0.9em; max-height: 200px; overflow-y: auto;",
                 shiny::tags$span(style = "font-family: monospace; white-space: pre-wrap;", coord_text),
                 shiny::tags$button(type = "button", class = "btn-close",
                     onclick = "Shiny.setInputValue('clear_coords', Math.random(), {priority: 'event'});")

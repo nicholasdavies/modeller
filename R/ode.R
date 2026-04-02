@@ -129,5 +129,8 @@ run_model.ode_model = function(model, init = NULL, params = NULL,
     attr(data, "dt") = times$step
     attr(data, "geom") = "line"
     class(data) = c("model_result", class(data))
+
+    standard_checks(data)
+
     data
 }
