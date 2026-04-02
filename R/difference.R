@@ -132,6 +132,7 @@ run_model.difference_model = function(model, init = NULL, params = NULL,
     attr(data, "geom") = "step"
     class(data) = c("model_result", class(data))
 
+    data = compute_incidence(data)
     standard_checks(data)
 
     data

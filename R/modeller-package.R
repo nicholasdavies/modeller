@@ -137,6 +137,67 @@ resolve_times = function(base, overrides = list(), has_step = FALSE)
     times
 }
 
+# Prefix for cumulative counter compartments that get converted to incidence.
+cumulative_prefix = "total_"
+
+# Convert cumulative total_ columns to incidence rates. Removes total_
+# columns and adds corresponding incidence columns (without the prefix).
+# For SSA results (irregular time points), computes incidence on a regular
+# grid and merges back, using last observation carried forward for the
+# original compartment columns at grid time points.
+compute_incidence = function(data)
+{
+    prefix = cumulative_prefix
+    total_cols = grep(paste0("^", prefix), names(data), value = TRUE)
+    if (length(total_cols) == 0) return(data)
+
+    dt = attr(data, "dt")
+    orig_class = class(data)
+    orig_geom = attr(data, "geom")
+    grid_step = if (dt <= 1) 1 else dt
+
+    if (dt == 0) {
+        # SSA: irregular time points. Compute incidence on a regular grid,
+        # then merge with original data and fill NAs with LOCF.
+        mat = as.matrix(data[c("t", total_cols)])
+        grid = seq(min(data$t), max(data$t), by = grid_step)
+        summ = grid_summarize(mat, grid)
+
+        inc_data = data.frame(t = grid)
+        for (col in total_cols) {
+            new_name = sub(paste0("^", prefix), "", col)
+            vals = summ[, col] / grid_step
+            inc_data[[new_name]] = c(vals[1], diff(vals))
+        }
+
+        data[total_cols] = NULL
+        data = merge(data, inc_data, by = "t", all = TRUE)
+        data = data[order(data$t), ]
+
+        # LOCF for compartment columns at grid-only time points
+        for (col in names(data)) {
+            if (col != "t" && anyNA(data[[col]])) {
+                nna = !is.na(data[[col]])
+                data[[col]] = data[[col]][nna][cumsum(nna)]
+            }
+        }
+        rownames(data) = NULL
+    } else {
+        # Regular grid: diff and divide by dt to get rate per unit time
+        for (col in total_cols) {
+            new_name = sub(paste0("^", prefix), "", col)
+            vals = data[[col]] / dt
+            data[[new_name]] = c(vals[1], diff(vals))
+        }
+        data[total_cols] = NULL
+    }
+
+    attr(data, "dt") = dt
+    attr(data, "geom") = orig_geom
+    class(data) = orig_class
+    data
+}
+
 # Helper to detect and issue a warning about some problem with the model
 # results.
 detect_problem = function(result, predicate, description, fix)

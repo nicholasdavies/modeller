@@ -68,17 +68,38 @@ ssa_model = function(init, params, equations, times, options = list())
     txs = elixir::expr_match(eq, { tx(..A -> ..B) = ..C } ? { tx(..A -> ..B) <- ..C })
     transitions = list()
 
+    # Parse a transition side (e.g. A, A + B, or 0) into compartment names.
+    parse_compartments = function(expr) {
+        if (is.call(expr) && identical(expr[[1]], as.name("+"))) {
+            c(parse_compartments(expr[[2]]), parse_compartments(expr[[3]]))
+        } else if (is.name(expr)) {
+            as.character(expr)
+        } else if (is.numeric(expr) && expr == 0) {
+            character(0)
+        } else {
+            stop("malformed transition: expected compartment name or 0, got `",
+                deparse(expr), "`", call. = FALSE)
+        }
+    }
+
     for (i in seq_along(txs)) {
         tx = txs[[i]]
-        # TODO this will not work for multi compartments
-        increments = structure(rep(0, length(init)), names = names(init))
-        # TODO check all names for validity
-        # TODO allow pluses, multiples
-        increments[[as.character(tx$A)]] = -1
-        increments[[as.character(tx$B)]] = +1
-        # TODO the id has to be by transition components, not just counting up by one
-        eq[[tx$loc]] = rlang::expr(.tvec[[!!i]] <<- !!tx$C)
+        from = parse_compartments(tx$A)
+        to = parse_compartments(tx$B)
 
+        increments = structure(rep(0, length(init)), names = names(init))
+        for (name in from) {
+            if (!name %in% names(init))
+                stop("unknown compartment in transition: `", name, "`", call. = FALSE)
+            increments[[name]] = increments[[name]] - 1
+        }
+        for (name in to) {
+            if (!name %in% names(init))
+                stop("unknown compartment in transition: `", name, "`", call. = FALSE)
+            increments[[name]] = increments[[name]] + 1
+        }
+
+        eq[[tx$loc]] = rlang::expr(.tvec[[!!i]] <<- !!tx$C)
         transitions[[i]] = increments
     }
 
@@ -158,6 +179,7 @@ run_model.ssa_model = function(model, init = NULL, params = NULL,
     attr(data, "geom") = "step"
     class(data) = c("model_result", class(data))
 
+    data = compute_incidence(data)
     standard_checks(data)
 
     data

@@ -41,10 +41,8 @@ or \code{"none"}.}
 The \link[ggplot2:ggplot]{ggplot2::ggplot} object (returned by \code{print()}).
 }
 \description{
-Plots compartment dynamics from a model simulation. Cumulative counters
-(compartments with names starting \code{total_}) are automatically converted
-to incidence rates. Overlay data points can be added for comparison with
-observed data.
+Plots compartment dynamics from a model simulation. Overlay data points
+can be added for comparison with observed data.
 }
 \examples{
 m = ode_model(

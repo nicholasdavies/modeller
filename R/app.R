@@ -34,7 +34,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
 
     init_elements = list(shiny::tags$p(shiny::tags$strong("Initial conditions")))
     for (n in names(init)) {
-        if (startsWith(n, "total_")) next
+        if (startsWith(n, cumulative_prefix)) next
         id = paste0("model_init_", n)
         init_elements[[length(init_elements) + 1]] = inshiny::inline(n, "(0) = ",
             inshiny::inline_number(id, value = init[[n]],
@@ -154,6 +154,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             model_messages(NULL)
         })
 
+
         # Data import
         shiny::observeEvent(input$data_upload, {
             imported_data(data.table::fread(input$data_upload$datapath, data.table = FALSE))
@@ -176,7 +177,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
         # Shared reactive: run model with current inputs
         current_data = shiny::reactive({
             init_list = lapply(names(init), function(n) {
-                if (startsWith(n, "total_")) init[[n]] else input[[paste0("model_init_", n)]]
+                if (startsWith(n, cumulative_prefix)) init[[n]] else input[[paste0("model_init_", n)]]
             })
             names(init_list) = names(init)
 
@@ -207,11 +208,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
         output$compartment_toggles = shiny::renderUI({
             d = current_data()
             shiny::req(d)
-            total_cols = grep("^total_", names(d), value = TRUE)
-            series = setdiff(names(d), c("t", total_cols))
-            inc_names = sub("^total_", "", total_cols)
-            series = c(series, inc_names)
-
+            series = setdiff(names(d), "t")
             shiny::checkboxGroupInput("visible_series", NULL,
                 choices = series, selected = series, inline = TRUE)
         })
@@ -310,6 +307,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
                     onclick = "Shiny.setInputValue('clear_messages', Math.random(), {priority: 'event'});")
             )
         })
+
 
         # Coordinates box: shows compartment values at selected time
         output$coords_box = shiny::renderUI({

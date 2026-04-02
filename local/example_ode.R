@@ -1,9 +1,10 @@
 # multiple plots? -- in code?
-# fitting -- in code
+# X fitting -- in code
 # X euler timestep blows up axes with large time step
 # X don't hide negative outputs.
 # X Detect unusual outputs
 # X Handle warnings or errors
+# X Conversion of total_xxx should be part of running the model, not just plotting it
 
 # SEIR model for measles
 library(modeller)
@@ -13,7 +14,8 @@ init = list(
     S = 99999,
     E = 0,
     I = 1,
-    R = 0
+    R = 0,
+    total_infection = 0
 )
 
 # Model parameters
@@ -35,6 +37,7 @@ equations = function()
     d(E) =  beta * I/N * S - infectious_rate * E
     d(I) =                   infectious_rate * E - rec_rate * I
     d(R) =                                         rec_rate * I
+    d(total_infection) = beta * I/N * S
 }
 
 # Times

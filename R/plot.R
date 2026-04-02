@@ -64,10 +64,8 @@ resolve_palette = function(palette) {
 
 #' Plot model results
 #'
-#' Plots compartment dynamics from a model simulation. Cumulative counters
-#' (compartments with names starting `total_`) are automatically converted
-#' to incidence rates. Overlay data points can be added for comparison with
-#' observed data.
+#' Plots compartment dynamics from a model simulation. Overlay data points
+#' can be added for comparison with observed data.
 #'
 #' @param x A `model_result` object returned by [run_model()].
 #' @param series Character vector of series names to display. `NULL` (the
@@ -100,38 +98,13 @@ resolve_palette = function(palette) {
 plot.model_result = function(x, series = NULL, overlay = NULL,
     palette = "Set1", legend = "right", time_col = "t", vline = NULL, ...)
 {
-    # Separate total_ columns for incidence
-    total_cols = grep("^total_", names(x), value = TRUE)
-    plot_cols = setdiff(names(x), total_cols)
-    main_data = x[plot_cols]
-
-    # Compute incidence from total_ columns
-    inc_data = NULL
-    if (length(total_cols) > 0) {
-        mat = as.matrix(x[c("t", total_cols)])
-        grid_step = if (attr(x, "dt") <= 1) 1 else attr(x, "dt")
-        grid = seq(min(mat[, 1]), max(mat[, 1]), by = grid_step)
-        summ = grid_summarize(mat, grid)
-        inc_data = data.frame(t = grid)
-        for (col in total_cols) {
-            new_name = sub("^total_", "", col)
-            vals = summ[, col] / grid_step
-            inc_data[[new_name]] = c(vals[1], diff(vals))
-        }
-    }
-
     # Determine all series names (used for consistent factor levels / colours)
-    compartments = setdiff(names(main_data), "t")
-    inc_names = if (!is.null(inc_data)) setdiff(names(inc_data), "t") else character(0)
-    all_names = c(compartments, inc_names)
+    all_names = setdiff(names(x), "t")
+    visible = if (!is.null(series)) intersect(all_names, series) else all_names
 
-    # Filter to requested series (but keep all_names for colour consistency)
-    visible_compartments = if (!is.null(series)) intersect(compartments, series) else compartments
-    visible_inc = if (!is.null(series)) intersect(inc_names, series) else inc_names
-
-    # Pivot main data
-    if (length(visible_compartments) > 0) {
-        plot_data = tidyr::pivot_longer(main_data[c("t", visible_compartments)], cols = -1)
+    # Pivot to long format
+    if (length(visible) > 0) {
+        plot_data = tidyr::pivot_longer(x[c("t", visible)], cols = -1)
         plot_data$name = factor(plot_data$name, levels = all_names)
     } else {
         plot_data = data.frame(t = numeric(0), name = factor(levels = all_names), value = numeric(0))
@@ -154,16 +127,6 @@ plot.model_result = function(x, series = NULL, overlay = NULL,
     # Vertical line
     if (!is.null(vline)) {
         p = p + ggplot2::geom_vline(xintercept = vline)
-    }
-
-    # Overlay incidence
-    if (!is.null(inc_data) && length(visible_inc) > 0) {
-        inc_long = tidyr::pivot_longer(inc_data[c("t", visible_inc)], cols = -1)
-        inc_long$name = factor(inc_long$name, levels = all_names)
-        if (nrow(inc_long) > 0) {
-            p = p + geom(data = inc_long,
-                ggplot2::aes(x = t, y = value, colour = name), linewidth = 1)
-        }
     }
 
     # Overlay data points

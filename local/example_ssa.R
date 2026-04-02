@@ -15,7 +15,8 @@ init = list(
     S = 999,
     E = 0,
     I = 1,
-    R = 0
+    R = 0,
+    total_infections = 0
 )
 
 params = list(
@@ -31,7 +32,7 @@ equations = function()
     beta = R0 / infectious_period
     N = S + E + I + R
 
-    tx(S -> E) = beta * I/N * S # TODO total_infections
+    tx(S -> E + total_infections) = beta * I/N * S
     tx(E -> I) = infectious_rate * E
     tx(I -> R) = rec_rate * I
 }
