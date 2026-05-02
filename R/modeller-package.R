@@ -86,9 +86,23 @@ print.modeller = function(x, ...)
 
     param_names = setdiff(names(x$params), "time")
 
+    fmt_compartment = function(nm, val) {
+        if (length(val) == 1) sprintf("%s(0) = %s", nm, format(val))
+        else if (all(val == val[1])) sprintf("%s[%d](0) = %s", nm, length(val), format(val[1]))
+        else sprintf("%s[%d](0) = c(%s, ...)", nm, length(val), format(val[1]))
+    }
+    fmt_param = function(nm, val) {
+        if (length(val) == 1) sprintf("%s = %s", nm, format(val))
+        else sprintf("%s[%d] = c(%s, ...)", nm, length(val), format(val[1]))
+    }
+
     cat(type, "model\n")
-    cat("  Compartments: ", paste0(names(x$init), "(0) = ", x$init, collapse = ", "), "\n", sep = "")
-    cat("  Parameters:   ", paste0(param_names, " = ", x$params[param_names], collapse = ", "), "\n", sep = "")
+    cat("  Compartments: ",
+        paste(mapply(fmt_compartment, names(x$init), x$init), collapse = ", "),
+        "\n", sep = "")
+    cat("  Parameters:   ",
+        paste(mapply(fmt_param, param_names, x$params[param_names]), collapse = ", "),
+        "\n", sep = "")
     cat("  Time:         ", x$params$time[1], " to ", x$params$time[2], ", step ", x$params$time[3], "\n", sep = "")
     invisible(x)
 }
@@ -178,6 +192,51 @@ validate_inputs = function(init, params, equations)
     return (params)
 }
 
+# Build the flat state-vector column names from a schema (named integer
+# vector of compartment lengths). Scalars get the bare name; vectors get
+# "name.1", "name.2", ... (R 1-indexed for consistency with R subscripting).
+build_flat_names = function(schema)
+{
+    parts = character(0)
+    for (i in seq_along(schema)) {
+        nm = names(schema)[i]
+        n = schema[[i]]
+        if (n == 1L) {
+            parts = c(parts, nm)
+        } else {
+            parts = c(parts, paste0(nm, ".", seq_len(n)))
+        }
+    }
+    parts
+}
+
+# Pack a named list of vectors into a single named numeric vector, using
+# the build_flat_names convention. The complement of unpack_state.
+pack_state = function(state_list)
+{
+    schema = vapply(state_list, length, integer(1))
+    flat = unlist(state_list, use.names = FALSE)
+    names(flat) = build_flat_names(schema)
+    flat
+}
+
+# Unpack a flat numeric vector into a named list of vectors using a schema.
+# The complement of pack_state.
+unpack_state = function(flat, schema)
+{
+    out = vector("list", length(schema))
+    names(out) = names(schema)
+    idx = 1L
+    for (i in seq_along(schema)) {
+        n = schema[[i]]
+        v = flat[idx:(idx + n - 1L)]
+        names(v) = NULL
+        out[[i]] = v
+        idx = idx + n
+    }
+    out
+}
+
 # Prefix for cumulative counter compartments that get converted to incidence.
 cumulative_prefix = "total_"
 
@@ -251,15 +310,24 @@ compute_recordings = function(model, params, data)
 {
     if (is.null(model$recorder)) return(data)
 
-    state_cols = setdiff(names(data), "t")
-    state_vecs = as.list(data[state_cols])
+    schema = vapply(model$init, length, integer(1))
+    flat_state_names = build_flat_names(schema)
+    # Other columns (e.g. incidence) are passed via .params so they appear
+    # alongside compartments inside the recorder body's `with(...)` env.
+    other_cols = setdiff(names(data), c("t", flat_state_names))
+
+    state_mat = as.matrix(data[, flat_state_names, drop = FALSE])
+    other_data = lapply(other_cols, function(col) data[[col]])
+    names(other_data) = other_cols
     t_vec = data[[1]]
     n = length(t_vec)
 
     recordings = vector(mode = "list", n)
     if (model$type == "ODE" || model$type == "difference") {
         for (r in seq_len(n)) {
-            recordings[[r]] = model$recorder(t_vec[r], lapply(state_vecs, "[", r), params)
+            params_r = params
+            for (col in other_cols) params_r[[col]] = other_data[[col]][r]
+            recordings[[r]] = model$recorder(t_vec[r], state_mat[r, ], params_r)
         }
     } else if (model$type == "SSA") {
         # SSA equations body converts t from relative to absolute by adding
@@ -267,7 +335,9 @@ compute_recordings = function(model, params, data)
         # here (data t is already absolute) to avoid double-counting.
         start_time = params$time[1]
         for (r in seq_len(n)) {
-            recordings[[r]] = model$recorder(lapply(state_vecs, "[", r), params, t_vec[r] - start_time)
+            params_r = params
+            for (col in other_cols) params_r[[col]] = other_data[[col]][r]
+            recordings[[r]] = model$recorder(state_mat[r, ], params_r, t_vec[r] - start_time)
         }
     } else {
         stop("Unknown model type.")

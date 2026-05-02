@@ -34,6 +34,16 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
     params = model$params
     extra_elements = model$shiny$ui
 
+    # The interactive UI doesn't yet support vector-valued compartments or
+    # vector-valued parameters. Bail out early with a clear message rather
+    # than failing inside an inshiny widget.
+    if (any(vapply(init, length, integer(1)) > 1L) ||
+        any(vapply(params[setdiff(names(params), "time")], length, integer(1)) > 1L)) {
+        stop("show_model() does not yet support models with vector-valued ",
+            "compartments or parameters. Use run_model() and plot() directly.",
+            call. = FALSE)
+    }
+
     # Create Shiny app
 
     init_elements = list(shiny::tags$p(shiny::tags$strong("Initial conditions")))

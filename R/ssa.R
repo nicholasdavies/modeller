@@ -81,25 +81,64 @@ ssa_model = function(init, params, equations, options = list())
         }
     }
 
+    # Schema for vector compartments. Scalar -> length 1. Each tx() group
+    # generates K transitions where K is the length of the vector
+    # compartments referenced; scalar compartments broadcast to every
+    # transition in the group.
+    schema = vapply(init, length, integer(1))
+    flat_names = build_flat_names(schema)
+    n_flat = length(flat_names)
+    flat_offsets = setNames(c(0L, head(cumsum(schema), -1L)), names(schema))
+
+    tvec_offset = 0L
     for (i in seq_along(txs)) {
         tx = txs[[i]]
         from = parse_compartments(tx$A)
         to = parse_compartments(tx$B)
 
-        increments = structure(rep(0, length(init)), names = names(init))
-        for (name in from) {
+        for (name in c(from, to)) {
             if (!name %in% names(init))
                 stop("unknown compartment in transition: `", name, "`", call. = FALSE)
-            increments[[name]] = increments[[name]] - 1
-        }
-        for (name in to) {
-            if (!name %in% names(init))
-                stop("unknown compartment in transition: `", name, "`", call. = FALSE)
-            increments[[name]] = increments[[name]] + 1
         }
 
-        eq[[tx$loc]] = rlang::expr(.tvec[[!!i]] <<- !!tx$C)
-        transitions[[i]] = increments
+        # Determine K: the length of any vector compartment in this tx.
+        # All vector compartments referenced must agree on length.
+        cmpts = c(from, to)
+        cmpt_lens = unique(schema[cmpts])
+        cmpt_lens = cmpt_lens[cmpt_lens > 1]
+        if (length(cmpt_lens) > 1) {
+            stop("transition references vector compartments of different ",
+                "lengths: ", paste(cmpts, collapse = ", "), call. = FALSE)
+        }
+        K = if (length(cmpt_lens) == 0) 1L else cmpt_lens[[1]]
+
+        # Build K transitions, each a length-n_flat increment vector.
+        for (k in seq_len(K)) {
+            increments = structure(rep(0, n_flat), names = flat_names)
+            for (name in from) {
+                idx = if (schema[[name]] == 1L) 1L else k
+                pos = flat_offsets[[name]] + idx
+                increments[pos] = increments[pos] - 1
+            }
+            for (name in to) {
+                idx = if (schema[[name]] == 1L) 1L else k
+                pos = flat_offsets[[name]] + idx
+                increments[pos] = increments[pos] + 1
+            }
+            transitions[[tvec_offset + k]] = increments
+        }
+
+        # Rewrite the rate expression. Single transition -> single slot;
+        # vector group -> slice of K slots filled by the (length-K) rate
+        # expression (or scalar broadcast).
+        if (K == 1L) {
+            eq[[tx$loc]] = rlang::expr(.tvec[[!!(tvec_offset + 1L)]] <<- !!tx$C)
+        } else {
+            slot_seq = (tvec_offset + 1L):(tvec_offset + K)
+            eq[[tx$loc]] = rlang::expr(.tvec[!!slot_seq] <<- !!tx$C)
+        }
+
+        tvec_offset = tvec_offset + K
     }
     check_helpers(eq, "SSA")
 
@@ -109,7 +148,8 @@ ssa_model = function(init, params, equations, options = list())
         record = modeller:::null_record
         .tvec = numeric(!!length(transitions))
         t = t + .params$time[1]
-        with(as.list(c(.state, .params)), !!eq)
+        state_list = modeller:::unpack_state(.state, !!schema)
+        with(c(state_list, .params), !!eq)
         return (.tvec)
     })
 
@@ -172,11 +212,11 @@ run_model.ssa_model = function(model, init = NULL, params = NULL,
     params_list = params
 
     if (options$method == "adaptive-tau") {
-        sol = adaptivetau::ssa.adaptivetau(unlist(init),
+        sol = adaptivetau::ssa.adaptivetau(pack_state(init),
             model$transitions, model$equations, params_list, params$time[2] - params$time[1],
             tl.params = list(epsilon = options$epsilon))
     } else {
-        sol = adaptivetau::ssa.exact(unlist(init),
+        sol = adaptivetau::ssa.exact(pack_state(init),
             model$transitions, model$equations, params_list, params$time[2] - params$time[1])
     }
     data = as.data.frame(sol)

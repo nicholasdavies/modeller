@@ -76,13 +76,16 @@ difference_model = function(init, params, equations, options = list())
         { .nlist[[as.character(quote(.A))]] <<- ..B })
     check_helpers(eq, "difference")
 
-    # .nlist defaults to current state so a compartment without new() stays
-    # at its current value across the step rather than reverting to init.
+    schema = vapply(init, length, integer(1))
+
+    # .nlist defaults to current (vector-aware) state so a compartment without
+    # new() stays at its current value across the step.
     body(equations) = rlang::expr({
         record = modeller:::null_record
-        .nlist = as.list(.state)
-        with(c(list(dt = .params$.dt), .state, .params), !!eq)
-        return (unlist(.nlist))
+        state_list = modeller:::unpack_state(.state, !!schema)
+        .nlist = state_list
+        with(c(list(dt = .params$.dt), state_list, .params), !!eq)
+        return (modeller:::pack_state(.nlist))
     })
 
     # Build recorder function
@@ -129,7 +132,7 @@ run_model.difference_model = function(model, init = NULL, params = NULL,
     params$.dt = params$time[3]
 
     tval = seq(params$time[1], params$time[2], params$time[3])
-    state = unlist(init)
+    state = pack_state(init)
     n = length(tval)
 
     # Pre-allocate matrix: rows = time steps, cols = t + compartments
@@ -142,7 +145,7 @@ run_model.difference_model = function(model, init = NULL, params = NULL,
     }
 
     data = as.data.frame(result)
-    names(data) = c("t", names(init))
+    names(data) = c("t", names(state))
 
     attr(data, "dt") = params$time[3]
     attr(data, "geom") = "step"

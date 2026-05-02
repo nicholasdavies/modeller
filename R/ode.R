@@ -75,13 +75,18 @@ ode_model = function(init, params, equations, options = list())
         { .dlist[[as.character(quote(.A))]] <<- ..B })
     check_helpers(eq, "ODE")
 
-    # .dlist defaults to zeros so a compartment without d() stays constant
-    # (rate of change = 0) rather than picking up its initial value.
+    # Schema for packing/unpacking vector compartments. Scalar compartments
+    # (length 1) are unaffected; vector ones flatten into Name.1..Name.K.
+    schema = vapply(init, length, integer(1))
+
+    # .dlist defaults to zero-vectors of the right length so a compartment
+    # without d() stays constant (rate of change = 0).
     body(equations) = rlang::expr({
         record = modeller:::null_record
-        .dlist = !!lapply(init, function(x) 0)
-        with(c(.state, .params), !!eq)
-        return (list(unlist(.dlist)))
+        .dlist = !!lapply(init, function(x) numeric(length(x)))
+        state_list = modeller:::unpack_state(.state, !!schema)
+        with(c(state_list, .params), !!eq)
+        return (list(modeller:::pack_state(.dlist)))
     })
 
     # Build recorder function
@@ -138,7 +143,7 @@ run_model.ode_model = function(model, init = NULL, params = NULL,
     tval = seq(params$time[1], params$time[2], params$time[3])
     if (tval[length(tval)] < params$time[2]) tval = c(tval, params$time[2])
 
-    sol = deSolve::ode(y = unlist(init), times = tval,
+    sol = deSolve::ode(y = pack_state(init), times = tval,
         func = model$equations, parms = params, method = options$method)
     data = as.data.frame(sol)
     names(data)[1] = "t"
