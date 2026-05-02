@@ -4,35 +4,42 @@
 \alias{ssa_model}
 \title{Create a stochastic SSA model}
 \usage{
-ssa_model(init, params, equations, times, options = list())
+ssa_model(init, params, equations, options = list())
 }
 \arguments{
 \item{init}{Named list of initial compartment values, typically integers
 (e.g. \code{list(S = 999, I = 1, R = 0)}).}
 
-\item{params}{Named list of parameter values (e.g.
-\code{list(beta = 0.3, gamma = 0.1)}).}
+\item{params}{Named list of parameter values. Must include \code{time}, which
+controls the simulation time span and can be specified as:
+\itemize{
+\item A single number \code{N} (duration): simulates from 0 to N.
+\item \code{c(start, stop)}: simulates from start to stop.
+\item \code{c(start, stop, step)}: the step element is stored but ignored by
+the SSA solver (stochastic events occur at irregular times).
+}
 
-\item{equations}{A function with no arguments. Inside the function body,
-write equations using compartment and parameter names as if they were
-ordinary variables. Return a list giving the rate of each transition, in
-the same order as \code{transitions}. Compartments whose names start with
-\code{total_} are treated as cumulative counters; the corresponding incidence
-is computed automatically when plotting.}
+Inside the equations function, \code{time} is a three-element numeric vector
+\code{c(start, stop, step)} regardless of how it was originally specified.}
 
-\item{times}{Named list controlling the time span. Accepts \code{start},
-\code{stop}, and \code{duration}. At minimum, provide \code{duration} or \code{stop}.
-Defaults: \code{start = 0}, \code{stop = 100}.}
+\item{equations}{A function with no arguments. Use \code{tx(A -> B) = rate} to
+define transitions between compartments. Compartments whose names start
+with \code{total_} are treated as cumulative counters; the corresponding
+incidence is computed automatically when plotting.}
 
 \item{options}{Named list of solver options. For SSA models:
 \itemize{
 \item \code{method}: \code{"adaptive-tau"} (default) or \code{"exact"}.
 \item \code{seed}: random number seed, or \code{NULL} (default) for
 non-deterministic results.
+\item \code{epsilon}: tau-leaping error control parameter passed to
+\code{\link[adaptivetau:ssa.adaptivetau]{adaptivetau::ssa.adaptivetau()}} as \code{tl.params$epsilon}. Smaller
+values give more accurate but slower simulations. Default \code{0.05}.
+Ignored when \code{method = "exact"}.
 }
 
-Default: \code{list(seed = NULL, method = "adaptive-tau")}. Can be
-overridden in \code{\link[=run_model]{run_model()}}.}
+Default: \code{list(seed = NULL, method = "adaptive-tau", epsilon = 0.05)}.
+Can be overridden in \code{\link[=run_model]{run_model()}}.}
 }
 \value{
 An object of class \code{c("ssa_model", "modeller")}. Use
@@ -41,34 +48,27 @@ and \code{\link[=show_model]{show_model()}} to launch the interactive app.
 }
 \description{
 Defines a compartmental model solved with Gillespie's stochastic simulation
-algorithm via \link{adaptivetau}. The equations function calculates the rate
-at which each event occurs, and a separate \code{transitions} argument
-defines how each event changes the compartment values. For example, an
-infection event might occur at rate \code{beta * S * I / N} and change the
-state by \code{c(S = -1, I = +1)}.
+algorithm via \link{adaptivetau}. Transitions are defined using the \code{tx()}
+syntax: \code{tx(A -> B) = rate} specifies that compartment \code{A} loses one
+individual and compartment \code{B} gains one, at the given rate. For example,
+\code{tx(S -> I) = beta * S * I / N}.
 }
 \details{
 The equations function is written as a plain R function with no arguments.
 Inside the function body, compartment names (from \code{init}) and parameter
 names (from \code{params}) can be used as ordinary variables — the package
-makes them available automatically.
+makes them available automatically. The variable \code{t} (the current time)
+is also available.
 }
 \examples{
 m = ssa_model(
     init = list(S = 999, I = 1, R = 0),
-    params = list(beta = 0.3, gamma = 0.1),
-    transitions = list(
-        c(S = -1, I = +1),
-        c(I = -1, R = +1)
-    ),
+    params = list(beta = 0.3, gamma = 0.1, time = 100),
     equations = function() {
         N = S + I + R
-        list(
-            infection = beta * I / N * S,
-            recovery  = gamma * I
-        )
-    },
-    times = list(duration = 100)
+        tx(S -> I) = beta * I / N * S
+        tx(I -> R) = gamma * I
+    }
 )
 m
 result = run_model(m)

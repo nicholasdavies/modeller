@@ -13,7 +13,8 @@ init = list(
 params = list(
     latent_period = 8,
     infectious_period = 7,
-    R0 = 13
+    R0 = 13,
+    time = 150
 )
 
 equations = function()
@@ -32,14 +33,11 @@ equations = function()
     new(I) = I + becoming_infectious - recoveries
     new(R) = R + recoveries
     new(total_infections) = total_infections + infections
+
+    record(something = R/2)
 }
 
-times = list(
-    duration = 150,
-    step = 1
-)
-
-m = difference_model(init, params, equations, times)
+m = difference_model(init, params, equations)
 result = run_model(m)
 plot(result)
 show_model(m)

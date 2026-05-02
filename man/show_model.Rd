@@ -28,9 +28,13 @@ visual comparison.
 \examples{
 m = ode_model(
     init = list(S = 999, I = 1, R = 0),
-    params = list(beta = 0.3, gamma = 0.1),
-    model = function() list(-beta * S * I, beta * S * I - gamma * I, gamma * I),
-    times = list(duration = 50)
+    params = list(beta = 0.3, gamma = 0.1, time = 50),
+    equations = function() {
+        N = S + I + R
+        d(S) = -beta * I / N * S
+        d(I) =  beta * I / N * S - gamma * I
+        d(R) =  gamma * I
+    }
 )
 if (interactive()) show_model(m)
 

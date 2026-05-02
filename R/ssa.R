@@ -1,37 +1,43 @@
 #' Create a stochastic SSA model
 #'
 #' Defines a compartmental model solved with Gillespie's stochastic simulation
-#' algorithm via [adaptivetau]. The equations function calculates the rate
-#' at which each event occurs, and a separate `transitions` argument
-#' defines how each event changes the compartment values. For example, an
-#' infection event might occur at rate `beta * S * I / N` and change the
-#' state by `c(S = -1, I = +1)`.
+#' algorithm via [adaptivetau]. Transitions are defined using the `tx()`
+#' syntax: `tx(A -> B) = rate` specifies that compartment `A` loses one
+#' individual and compartment `B` gains one, at the given rate. For example,
+#' `tx(S -> I) = beta * S * I / N`.
 #'
 #' The equations function is written as a plain R function with no arguments.
 #' Inside the function body, compartment names (from `init`) and parameter
 #' names (from `params`) can be used as ordinary variables — the package
-#' makes them available automatically.
+#' makes them available automatically. The variable `t` (the current time)
+#' is also available.
 #'
 #' @param init Named list of initial compartment values, typically integers
 #'   (e.g. `list(S = 999, I = 1, R = 0)`).
-#' @param params Named list of parameter values (e.g.
-#'   `list(beta = 0.3, gamma = 0.1)`).
-#' @param equations A function with no arguments. Inside the function body,
-#'   write equations using compartment and parameter names as if they were
-#'   ordinary variables. Return a list giving the rate of each transition, in
-#'   the same order as `transitions`. Compartments whose names start with
-#'   `total_` are treated as cumulative counters; the corresponding incidence
-#'   is computed automatically when plotting.
-#' @param times Named list controlling the time span. Accepts `start`,
-#'   `stop`, and `duration`. At minimum, provide `duration` or `stop`.
-#'   Defaults: `start = 0`, `stop = 100`.
+#' @param params Named list of parameter values. Must include `time`, which
+#'   controls the simulation time span and can be specified as:
+#'   - A single number `N` (duration): simulates from 0 to N.
+#'   - `c(start, stop)`: simulates from start to stop.
+#'   - `c(start, stop, step)`: the step element is stored but ignored by
+#'     the SSA solver (stochastic events occur at irregular times).
+#'
+#'   Inside the equations function, `time` is a three-element numeric vector
+#'   `c(start, stop, step)` regardless of how it was originally specified.
+#' @param equations A function with no arguments. Use `tx(A -> B) = rate` to
+#'   define transitions between compartments. Compartments whose names start
+#'   with `total_` are treated as cumulative counters; the corresponding
+#'   incidence is computed automatically when plotting.
 #' @param options Named list of solver options. For SSA models:
 #'   - `method`: `"adaptive-tau"` (default) or `"exact"`.
 #'   - `seed`: random number seed, or `NULL` (default) for
 #'     non-deterministic results.
+#'   - `epsilon`: tau-leaping error control parameter passed to
+#'     [adaptivetau::ssa.adaptivetau()] as `tl.params$epsilon`. Smaller
+#'     values give more accurate but slower simulations. Default `0.05`.
+#'     Ignored when `method = "exact"`.
 #'
-#'   Default: `list(seed = NULL, method = "adaptive-tau")`. Can be
-#'   overridden in [run_model()].
+#'   Default: `list(seed = NULL, method = "adaptive-tau", epsilon = 0.05)`.
+#'   Can be overridden in [run_model()].
 #'
 #' @return An object of class `c("ssa_model", "modeller")`. Use
 #'   [run_model()] to simulate, [plot()][plot.model_result] to visualise,
@@ -40,28 +46,21 @@
 #' @examples
 #' m = ssa_model(
 #'     init = list(S = 999, I = 1, R = 0),
-#'     params = list(beta = 0.3, gamma = 0.1),
-#'     transitions = list(
-#'         c(S = -1, I = +1),
-#'         c(I = -1, R = +1)
-#'     ),
+#'     params = list(beta = 0.3, gamma = 0.1, time = 100),
 #'     equations = function() {
 #'         N = S + I + R
-#'         list(
-#'             infection = beta * I / N * S,
-#'             recovery  = gamma * I
-#'         )
-#'     },
-#'     times = list(duration = 100)
+#'         tx(S -> I) = beta * I / N * S
+#'         tx(I -> R) = gamma * I
+#'     }
 #' )
 #' m
 #' result = run_model(m)
 #' plot(result)
 #'
 #' @export
-ssa_model = function(init, params, equations, times, options = list())
+ssa_model = function(init, params, equations, options = list())
 {
-    validate_inputs(init, params, equations, times)
+    params = validate_inputs(init, params, equations)
 
     # Build transitions and edit body of equations function
     eq = body(equations)
@@ -102,22 +101,24 @@ ssa_model = function(init, params, equations, times, options = list())
         eq[[tx$loc]] = rlang::expr(.tvec[[!!i]] <<- !!tx$C)
         transitions[[i]] = increments
     }
+    check_helpers(eq, "SSA")
 
     # Put equations function into correct form
     formals(equations) = alist(.state =, .params =, t =)
     body(equations) = rlang::expr({
+        record = modeller:::null_record
         .tvec = numeric(!!length(transitions))
-        t = t + .params$.tstart
+        t = t + .params$time[1]
         with(as.list(c(.state, .params)), !!eq)
         return (.tvec)
     })
 
-    # Process times
-    times = resolve_times(times)
+    # Build recorder function
+    recorder = build_recorder(equations)
 
     # Shiny UI elements for solver settings
     ssa_methods = c("adaptive-tau", "exact")
-    default_options = modifyList(list(seed = NULL, method = "adaptive-tau"), options)
+    default_options = modifyList(list(seed = NULL, method = "adaptive-tau", epsilon = 0.05), options)
     shiny_ui = list(
         shiny::tags$p(shiny::tags$strong("SSA settings")),
         inshiny::inline("Random seed: ", inshiny::inline_number("ssa_seed",
@@ -126,27 +127,33 @@ ssa_model = function(init, params, equations, times, options = list())
         inshiny::inline("Method: ", inshiny::inline_select("ssa_method",
             choices = ssa_methods, selected = default_options$method,
             meaning = "SSA method")),
+        inshiny::inline("Epsilon: ", inshiny::inline_number("ssa_epsilon",
+            value = default_options$epsilon, min = 0.01, max = 0.99, step = 0.01,
+            arrows = FALSE,
+            meaning = "Tau-leaping error control (smaller = more accurate, slower)")),
         inshiny::inline("Start time: ",
-            inshiny::inline_number("ssa_t0", value = times$start, min = 0,
-                placeholder = times$start, arrows = FALSE, meaning = "Start time")),
+            inshiny::inline_number("ssa_t0", value = params$time[1], min = 0,
+                placeholder = params$time[1], arrows = FALSE, meaning = "Start time")),
         inshiny::inline("Duration: ",
-            inshiny::inline_number("ssa_tt", value = times$duration, min = 0,
-                placeholder = times$duration, arrows = FALSE, meaning = "Duration"))
+            inshiny::inline_number("ssa_tt", value = params$time[2] - params$time[1], min = 0,
+                placeholder = params$time[2] - params$time[1], arrows = FALSE, meaning = "Duration"))
     )
 
     # Shiny run closure: extracts solver settings from Shiny inputs
     shiny_run = function(model, init_list, params_list, input) {
+        params_list$time = c(input$ssa_t0, input$ssa_t0 + input$ssa_tt, 1)
         run_model(model,
             init = init_list,
             params = params_list,
-            times = list(start = input$ssa_t0, duration = input$ssa_tt),
-            options = list(seed = input$ssa_seed, method = input$ssa_method))
+            options = list(seed = input$ssa_seed, method = input$ssa_method,
+                epsilon = input$ssa_epsilon))
     }
 
     structure(list(
         type = "SSA",
-        init = init, params = params, equations = equations,
-        transitions = transitions, times = times,
+        init = init, params = params,
+        equations = equations, recorder = recorder,
+        transitions = transitions,
         options = default_options,
         shiny = list(ui = shiny_ui, run = shiny_run)
     ), class = c("ssa_model", "modeller"))
@@ -154,32 +161,35 @@ ssa_model = function(init, params, equations, times, options = list())
 
 #' @export
 run_model.ssa_model = function(model, init = NULL, params = NULL,
-    times = NULL, options = NULL, ...)
+    options = NULL, ...)
 {
     init = modifyList(model$init, init %||% list())
     params = modifyList(model$params, params %||% list())
-    times = resolve_times(model$times, times %||% list())
+    params = validate_inputs(init, params, ".BYPASS")
     options = modifyList(model$options, options %||% list())
 
     if (!is.null(options$seed)) set.seed(options$seed)
-    params_list = c(params, list(.tstart = times$start))
+    params_list = params
 
     if (options$method == "adaptive-tau") {
         sol = adaptivetau::ssa.adaptivetau(unlist(init),
-            model$transitions, model$equations, params_list, times$duration)
+            model$transitions, model$equations, params_list, params$time[2] - params$time[1],
+            tl.params = list(epsilon = options$epsilon))
     } else {
         sol = adaptivetau::ssa.exact(unlist(init),
-            model$transitions, model$equations, params_list, times$duration)
+            model$transitions, model$equations, params_list, params$time[2] - params$time[1])
     }
     data = as.data.frame(sol)
     names(data)[1] = "t"
-    data[[1]] = data[[1]] + times$start
+    data[[1]] = data[[1]] + params$time[1]
 
     attr(data, "dt") = 0
     attr(data, "geom") = "step"
+    data = compute_incidence(data)
+    data = compute_recordings(model, params, data)
+    data = remove_totals(data)
     class(data) = c("model_result", class(data))
 
-    data = compute_incidence(data)
     standard_checks(data)
 
     data

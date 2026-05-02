@@ -1,13 +1,11 @@
 # SSA EXAMPLE
-# TODO click on plot gives total_infections, not infections
-# TODO click line at far left isn't visible
-# TODO click line on step models -- not clear where measuring
-# TODO look for d(), tx(), new() and correct user if they're using the wrong
-#      type.
-# TODO Correct erroneous uses of d(), tx(), new().
-# TODO Check for name clashes in init and params. And for t, dt.
-# TODO make sure no tx/d/new are missing.
-# TODO everything TODO in ssa.R
+# X click on plot gives total_infections, not infections
+# X click line at far left isn't visible
+# X click line on step models -- not clear where measuring
+# X look for d(), tx(), new() and correct user if they're using the wrong type.
+# X Correct erroneous uses of d(), tx(), new().
+# X Check for name clashes in init and params. And for t, dt.
+# X make sure no tx/d/new are missing.
 
 library(modeller)
 
@@ -22,7 +20,8 @@ init = list(
 params = list(
     latent_period = 8,
     infectious_period = 7,
-    R0 = 13
+    R0 = 13,
+    time = 150
 )
 
 equations = function()
@@ -35,13 +34,11 @@ equations = function()
     tx(S -> E + total_infections) = beta * I/N * S
     tx(E -> I) = infectious_rate * E
     tx(I -> R) = rec_rate * I
+
+    record(something = R/2)
 }
 
-times = list(
-    duration = 150
-)
-
-m = ssa_model(init, params, equations, times)
+m = ssa_model(init, params, equations)
 result = run_model(m)
 plot(result)
 show_model(m)

@@ -105,10 +105,10 @@ fit_model = function(model, objective, theta, lower, upper, data, maxit = 500)
     }
 
     # Fit the model.
-    fit = optim(theta, fn = modeller_objective, user_model = model,
+    fit = optim(theta_unbounded, fn = modeller_objective, user_model = model,
         user_data = data, user_objective = objective,
         user_lower = lower, user_upper = upper,
-        control = list(trace = 10, warn.1d.NelderMead = FALSE,
+        control = list(warn.1d.NelderMead = FALSE,
             maxit = maxit, fnscale = -1))
 
     # Process convergence results and any message.
@@ -121,8 +121,6 @@ fit_model = function(model, objective, theta, lower, upper, data, maxit = 500)
     if (!is.null(fit$message)) {
         conv = paste(conv, "Message:", fit$message)
     }
-
-    cat("\n")
 
     return (list(theta = to_bounded(fit$par, lower, upper), value = fit$value,
         iterations = fit$counts[["function"]], convergence = conv))

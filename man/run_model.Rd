@@ -4,7 +4,7 @@
 \alias{run_model}
 \title{Run a model}
 \usage{
-run_model(model, init = NULL, params = NULL, times = NULL, options = NULL, ...)
+run_model(model, init = NULL, params = NULL, options = NULL, ...)
 }
 \arguments{
 \item{model}{A model object created by \code{\link[=ode_model]{ode_model()}}, \code{\link[=ssa_model]{ssa_model()}}, or
@@ -14,25 +14,24 @@ run_model(model, init = NULL, params = NULL, times = NULL, options = NULL, ...)
 
 \item{params}{Named list of parameters to override defaults.}
 
-\item{times}{Named list with \code{start}, \code{stop}, \code{duration}, and/or \code{step}
-to override defaults. If \code{duration} is provided, \code{stop} is recomputed;
-if \code{stop} is provided, \code{duration} is recomputed.}
-
 \item{options}{Named list of solver options to override defaults.
 
-For ODE models (default: \code{list(method = "lsoda")}):
+For ODE models (default: \code{list(method = "lsode")}):
 \itemize{
 \item \code{method}: integration method passed to \code{\link[deSolve:ode]{deSolve::ode()}}. Common
-choices include \code{"lsoda"} (default, adaptive), \code{"rk4"} (fixed-step
+choices include \code{"lsode"} (default, adaptive Adams/BDF), \code{"lsoda"}
+(adaptive with automatic stiffness switching), \code{"rk4"} (fixed-step
 Runge-Kutta), and \code{"euler"}.
 }
 
-For SSA models (default: \code{list(seed = NULL, method = "adaptive-tau")}):
+For SSA models (default: \code{list(seed = NULL, method = "adaptive-tau", epsilon = 0.05)}):
 \itemize{
 \item \code{seed}: random number seed for reproducibility, or \code{NULL} (default)
 for non-deterministic results.
 \item \code{method}: \code{"adaptive-tau"} (default, faster approximate) or \code{"exact"}
 (Gillespie's direct method).
+\item \code{epsilon}: tau-leaping error control. Smaller is more accurate but
+slower. Default \code{0.05}. Ignored when \code{method = "exact"}.
 }
 
 For difference equation models: no solver options are available.}
@@ -57,13 +56,14 @@ at their defaults.
 \examples{
 m = ode_model(
     init = list(S = 999, I = 1),
-    params = list(beta = 0.3, gamma = 0.1),
-    equations = function() list(-beta * S * I, beta * S * I - gamma * I),
-    times = list(duration = 50)
+    params = list(beta = 0.3, gamma = 0.1, time = 50),
+    equations = function() {
+        d(S) = -beta * S * I
+        d(I) =  beta * S * I - gamma * I
+    }
 )
 result = run_model(m)
 result = run_model(m, params = list(beta = 0.5))
-result = run_model(m, times = list(duration = 200))
 result = run_model(m, options = list(method = "rk4"))
 
 }

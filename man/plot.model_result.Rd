@@ -8,10 +8,14 @@
   x,
   series = NULL,
   overlay = NULL,
-  palette = "Set1",
+  palette = "Dark2",
   legend = "right",
   time_col = "t",
   vline = NULL,
+  title = NULL,
+  xlab = "Time",
+  ylab = NULL,
+  compare = NULL,
   ...
 )
 }
@@ -25,7 +29,7 @@ default) shows all compartments and incidence series.}
 Should contain a time column and one or more columns matching
 compartment or incidence names.}
 
-\item{palette}{Colour palette: a palette name (e.g. \code{"Set1"}, \code{"Okabe-Ito"},
+\item{palette}{Colour palette: a palette name (e.g. \code{"Dark2"}, \code{"Okabe-Ito"},
 \code{"viridis"}) or a function that takes \code{n} and returns \code{n} colours.}
 
 \item{legend}{Legend position: \code{"right"}, \code{"left"}, \code{"top"}, \code{"bottom"},
@@ -34,6 +38,9 @@ or \code{"none"}.}
 \item{time_col}{Name of the time column in \code{overlay}. Default \code{"t"}.}
 
 \item{vline}{Optional x-intercept for a vertical reference line.}
+
+\item{compare}{Optional second \code{model_result} to draw underneath in
+thinner, fainter lines for visual comparison.}
 
 \item{...}{Ignored.}
 }
@@ -47,9 +54,13 @@ can be added for comparison with observed data.
 \examples{
 m = ode_model(
     init = list(S = 999, I = 1, R = 0),
-    params = list(beta = 0.3, gamma = 0.1),
-    model = function() list(-beta * S * I, beta * S * I - gamma * I, gamma * I),
-    times = list(duration = 50)
+    params = list(beta = 0.3, gamma = 0.1, time = 50),
+    equations = function() {
+        N = S + I + R
+        d(S) = -beta * I / N * S
+        d(I) =  beta * I / N * S - gamma * I
+        d(R) =  gamma * I
+    }
 )
 result = run_model(m)
 plot(result)

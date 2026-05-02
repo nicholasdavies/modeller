@@ -4,29 +4,32 @@
 \alias{ode_model}
 \title{Create a deterministic ODE model}
 \usage{
-ode_model(init, params, equations, times, options = list())
+ode_model(init, params, equations, options = list())
 }
 \arguments{
 \item{init}{Named list of initial compartment values (e.g.
 \code{list(S = 999, I = 1, R = 0)}).}
 
-\item{params}{Named list of parameter values (e.g.
-\code{list(beta = 0.3, gamma = 0.1)}).}
+\item{params}{Named list of parameter values. Must include \code{time}, which
+controls the simulation time span and can be specified as:
+\itemize{
+\item A single number \code{N} (duration): simulates from 0 to N with step 1.
+\item \code{c(start, stop)}: simulates from start to stop with step 1.
+\item \code{c(start, stop, step)}: simulates from start to stop with the given
+step size.
+}
 
-\item{equations}{A function with no arguments. Inside the function body,
-write equations using compartment and parameter names as if they were
-ordinary variables. Return a list giving the derivative (rate of change)
-of each compartment, in the same order as \code{init}. Compartments whose names
-start with \code{total_} are treated as cumulative counters; the corresponding
-incidence is computed automatically when plotting.}
+Inside the equations function, \code{time} is a three-element numeric vector
+\code{c(start, stop, step)} regardless of how it was originally specified.}
 
-\item{times}{Named list controlling the time span. Accepts \code{start},
-\code{stop}, \code{duration}, and \code{step}. At minimum, provide \code{duration} or
-\code{stop}. Defaults: \code{start = 0}, \code{stop = 100}, \code{step = 1}.}
+\item{equations}{A function with no arguments. Use \code{d(X) = ...} to set
+the derivative (rate of change) of each compartment \code{X}. Compartments
+whose names start with \code{total_} are treated as cumulative counters; the
+corresponding incidence is computed automatically when plotting.}
 
 \item{options}{Named list of solver options. For ODE models the only
 option is \code{method}, the integration method passed to \code{\link[deSolve:ode]{deSolve::ode()}}.
-Default: \code{list(method = "lsoda")}. Can be overridden in \code{\link[=run_model]{run_model()}}.}
+Default: \code{list(method = "lsode")}. Can be overridden in \code{\link[=run_model]{run_model()}}.}
 }
 \value{
 An object of class \code{c("ode_model", "modeller")}. Use
@@ -36,29 +39,27 @@ and \code{\link[=show_model]{show_model()}} to launch the interactive app.
 \description{
 Defines a compartmental model solved with ordinary differential equations
 via \code{\link[deSolve:ode]{deSolve::ode()}}. At each time point, the equations function
-calculates and returns the rate of change (derivative) of every
-compartment. For example, if 10 individuals per unit time are leaving
-compartment \code{S}, the equations should return \code{dS = -10}.
+calculates the rate of change (derivative) of every compartment using the
+\code{d()} syntax. For example, if individuals leave compartment \code{S} at rate
+\code{alpha * S}, write \code{d(S) = -alpha * S}.
 }
 \details{
 The equations function is written as a plain R function with no arguments.
 Inside the function body, compartment names (from \code{init}) and parameter
 names (from \code{params}) can be used as ordinary variables — the package
-makes them available automatically.
+makes them available automatically. The variable \code{t} (the current time)
+is also available.
 }
 \examples{
 m = ode_model(
     init = list(S = 999, I = 1, R = 0),
-    params = list(beta = 0.3, gamma = 0.1),
+    params = list(beta = 0.3, gamma = 0.1, time = 100),
     equations = function() {
         N = S + I + R
-        list(
-            dS = -beta * I / N * S,
-            dI =  beta * I / N * S - gamma * I,
-            dR =  gamma * I
-        )
-    },
-    times = list(duration = 100)
+        d(S) = -beta * I / N * S
+        d(I) =  beta * I / N * S - gamma * I
+        d(R) =  gamma * I
+    }
 )
 m
 result = run_model(m)

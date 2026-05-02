@@ -1,6 +1,6 @@
-#' Interactive Infectious Disease Modelling
+#' Interactive dynamical systems modelling
 #'
-#' Build, run, and interactively explore compartmental infectious disease
+#' Build, run, and interactively explore compartmental dynamical systems
 #' models using deterministic (ODE), stochastic (SSA), and discrete-time
 #' (difference equation) solvers.
 #'
@@ -12,10 +12,10 @@
 #' 4. Explore interactively with [show_model()]
 #'
 #' @section Model specification:
-#' Equations are written as plain R functions that reference compartment and
-#' parameter names directly. The package transforms these into the form needed
-#' by the underlying solvers ([deSolve] for ODEs, [adaptivetau] for SSA,
-#' simple iteration for difference equations).
+#' Equations are written as specially-formatted R functions that reference
+#' compartment and parameter names directly. The package transforms these into
+#' the form needed by the underlying solvers ([deSolve] for ODEs, [adaptivetau]
+#' for SSA, simple iteration for difference equations).
 #'
 #' @keywords internal
 "_PACKAGE"
@@ -38,21 +38,22 @@ NULL
 #'   [difference_model()].
 #' @param init Named list of initial conditions to override defaults.
 #' @param params Named list of parameters to override defaults.
-#' @param times Named list with `start`, `stop`, `duration`, and/or `step`
-#'   to override defaults. If `duration` is provided, `stop` is recomputed;
-#'   if `stop` is provided, `duration` is recomputed.
 #' @param options Named list of solver options to override defaults.
 #'
-#'   For ODE models (default: `list(method = "lsoda")`):
+#'   For ODE models (default: `list(method = "lsode")`):
 #'   - `method`: integration method passed to [deSolve::ode()]. Common
-#'     choices include `"lsoda"` (default, adaptive), `"rk4"` (fixed-step
+#'     choices include `"lsode"` (default, adaptive Adams/BDF), `"lsoda"`
+#'     (adaptive with automatic stiffness switching), `"rk4"` (fixed-step
 #'     Runge-Kutta), and `"euler"`.
 #'
-#'   For SSA models (default: `list(seed = NULL, method = "adaptive-tau")`):
+#'   For SSA models (default: `list(seed = NULL, method = "adaptive-tau",
+#'   epsilon = 0.05)`):
 #'   - `seed`: random number seed for reproducibility, or `NULL` (default)
 #'     for non-deterministic results.
 #'   - `method`: `"adaptive-tau"` (default, faster approximate) or `"exact"`
 #'     (Gillespie's direct method).
+#'   - `epsilon`: tau-leaping error control. Smaller is more accurate but
+#'     slower. Default `0.05`. Ignored when `method = "exact"`.
 #'
 #'   For difference equation models: no solver options are available.
 #' @param ... Ignored.
@@ -64,17 +65,18 @@ NULL
 #' @examples
 #' m = ode_model(
 #'     init = list(S = 999, I = 1),
-#'     params = list(beta = 0.3, gamma = 0.1),
-#'     equations = function() list(-beta * S * I, beta * S * I - gamma * I),
-#'     times = list(duration = 50)
+#'     params = list(beta = 0.3, gamma = 0.1, time = 50),
+#'     equations = function() {
+#'         d(S) = -beta * S * I
+#'         d(I) =  beta * S * I - gamma * I
+#'     }
 #' )
 #' result = run_model(m)
 #' result = run_model(m, params = list(beta = 0.5))
-#' result = run_model(m, times = list(duration = 200))
 #' result = run_model(m, options = list(method = "rk4"))
 #'
 #' @export
-run_model = function(model, init = NULL, params = NULL, times = NULL,
+run_model = function(model, init = NULL, params = NULL,
     options = NULL, ...) UseMethod("run_model")
 
 #' @export
@@ -82,18 +84,47 @@ print.modeller = function(x, ...)
 {
     type = if (!is.null(x$type)) x$type else "Unknown"
 
+    param_names = setdiff(names(x$params), "time")
+
     cat(type, "model\n")
-    cat("  Compartments:", paste0(names(x$init), "(0) = ", x$init, collapse = ", "), "\n")
-    cat("  Parameters:  ", paste0(names(x$params), " = ", x$params, collapse = ", "), "\n")
-    cat("  Time:        ", x$times$start, "to", x$times$stop)
-    if (!is.null(x$times$step)) cat(", step", x$times$step)
-    cat("\n")
+    cat("  Compartments: ", paste0(names(x$init), "(0) = ", x$init, collapse = ", "), "\n", sep = "")
+    cat("  Parameters:   ", paste0(param_names, " = ", x$params[param_names], collapse = ", "), "\n", sep = "")
+    cat("  Time:         ", x$params$time[1], " to ", x$params$time[2], ", step ", x$params$time[3], "\n", sep = "")
     invisible(x)
 }
 
-# Validate inputs common to all model constructors
-validate_inputs = function(init, params, equations, times)
+# Check that the equations body doesn't reference helpers from other model
+# types. Called from each model constructor after that model's own helper
+# rewrites have been applied; any remaining d()/new()/tx() calls indicate
+# either the wrong helper for this model type or a malformed call.
+check_helpers = function(eq, model_type)
 {
+    if (model_type != "ODE" && elixir::expr_detect(eq, { d(..A) })) {
+        stop("`d()` is the syntax for ODE models. Use ",
+            if (model_type == "SSA") "`tx()`" else "`new()`",
+            " for ", model_type, " models.", call. = FALSE)
+    }
+    if (model_type != "difference" && elixir::expr_detect(eq, { new(..A) })) {
+        stop("`new()` is the syntax for difference equation models. Use ",
+            if (model_type == "SSA") "`tx()`" else "`d()`",
+            " for ", model_type, " models.", call. = FALSE)
+    }
+    if (elixir::expr_detect(eq, { tx(..A) })) {
+        if (model_type != "SSA") {
+            stop("`tx()` is the syntax for SSA models. Use ",
+                if (model_type == "ODE") "`d()`" else "`new()`",
+                " for ", model_type, " models.", call. = FALSE)
+        } else {
+            stop("malformed `tx()` call. Expected `tx(A -> B) = rate`.",
+                call. = FALSE)
+        }
+    }
+}
+
+# Validate inputs common to all model constructors
+validate_inputs = function(init, params, equations)
+{
+    # Basic structure of arguments
     if (!is.list(init) || is.null(names(init)) || any(names(init) == ""))
         stop("`init` must be a named list", call. = FALSE)
     if (!all(vapply(init, is.numeric, logical(1))))
@@ -102,39 +133,49 @@ validate_inputs = function(init, params, equations, times)
         stop("`params` must be a named list", call. = FALSE)
     if (!all(vapply(params, is.numeric, logical(1))))
         stop("all elements of `params` must be numeric", call. = FALSE)
-    if (!is.function(equations))
-        stop("`equations` must be a function", call. = FALSE)
-    if (length(formals(equations)) > 0)
-        stop("`equations` must be a function with no arguments", call. = FALSE)
-    if (!is.list(times) || is.null(names(init)) || any(names(init) == ""))
-        stop("`times` must be a named list", call. = FALSE)
-}
-
-# Resolve times list: ensures start, stop, duration, and (for ODE) step are set.
-# `overrides` is a named list of user-supplied fields that take precedence when
-# determining whether stop or duration should be recomputed.
-resolve_times = function(base, overrides = list(), has_step = FALSE)
-{
-    times = modifyList(base, overrides)
-    times$start = times$start %||% 0
-
-    if ("duration" %in% names(overrides)) {
-        times$stop = times$start + times$duration
-    } else if ("stop" %in% names(overrides)) {
-        times$duration = times$stop - times$start
-    } else if (!is.null(times$duration) && !is.null(times$stop)) {
-        # Both present from base (already resolved), keep as-is
-    } else if (!is.null(times$duration)) {
-        times$stop = times$start + times$duration
-    } else if (!is.null(times$stop)) {
-        times$duration = times$stop - times$start
-    } else {
-        times$duration = 100
-        times$stop = times$start + 100
+    if (!identical(equations, ".BYPASS")) {
+        if (!is.function(equations))
+            stop("`equations` must be a function", call. = FALSE)
+        if (length(formals(equations)) > 0)
+            stop("`equations` must be a function with no arguments", call. = FALSE)
     }
 
-    if (has_step) times$step = times$step %||% 1
-    times
+    # Reserved names: `t` is the simulation time, `dt` is the difference
+    # equation step, names starting with `.` are internal.
+    reserved = c("t", "dt")
+    is_internal = function(n) startsWith(n, ".")
+
+    bad_init = names(init) %in% c(reserved, "time") | vapply(names(init), is_internal, logical(1))
+    if (any(bad_init)) {
+        stop("`init` names cannot be `t`, `dt`, `time`, or start with `.`: ",
+            paste(names(init)[bad_init], collapse = ", "), call. = FALSE)
+    }
+    bad_params = names(params) %in% reserved | vapply(names(params), is_internal, logical(1))
+    if (any(bad_params)) {
+        stop("`params` names cannot be `t`, `dt`, or start with `.`: ",
+            paste(names(params)[bad_params], collapse = ", "), call. = FALSE)
+    }
+    overlap = intersect(names(init), names(params))
+    if (length(overlap) > 0) {
+        stop("`init` and `params` cannot share names: ",
+            paste(overlap, collapse = ", "), call. = FALSE)
+    }
+
+    # Times
+    if (length(params$time) == 0) {
+        warning("no `time` parameter supplied; setting duration to 100.")
+        params$time = c(0, 100, 1)
+    } else if (length(params$time) == 1 && params$time > 0) {
+        params$time = c(0, params$time, min(params$time, 1))
+    } else if (length(params$time) == 2 && params$time[2] > params$time[1]) {
+        params$time = c(params$time, min(params$time[2] - params$time[1], 1))
+    } else if (length(params$time) == 3 && params$time[2] > params$time[1] && params$time[3] > 0) {
+        params$time = c(params$time[1], params$time[2], min(params$time[2] - params$time[1], params$time[3]))
+    } else {
+        stop("`params$time` must either be: duration; c(start_time, stop_time); or c(start_time, stop_time, time_step)", call. = FALSE)
+    }
+
+    return (params)
 }
 
 # Prefix for cumulative counter compartments that get converted to incidence.
@@ -147,8 +188,8 @@ cumulative_prefix = "total_"
 # original compartment columns at grid time points.
 compute_incidence = function(data)
 {
-    prefix = cumulative_prefix
-    total_cols = grep(paste0("^", prefix), names(data), value = TRUE)
+    prefix = paste0("^", cumulative_prefix)
+    total_cols = grep(prefix, names(data), value = TRUE)
     if (length(total_cols) == 0) return(data)
 
     dt = attr(data, "dt")
@@ -165,12 +206,11 @@ compute_incidence = function(data)
 
         inc_data = data.frame(t = grid)
         for (col in total_cols) {
-            new_name = sub(paste0("^", prefix), "", col)
+            new_name = sub(prefix, "", col)
             vals = summ[, col] / grid_step
             inc_data[[new_name]] = c(vals[1], diff(vals))
         }
 
-        data[total_cols] = NULL
         data = merge(data, inc_data, by = "t", all = TRUE)
         data = data[order(data$t), ]
 
@@ -185,11 +225,10 @@ compute_incidence = function(data)
     } else {
         # Regular grid: diff and divide by dt to get rate per unit time
         for (col in total_cols) {
-            new_name = sub(paste0("^", prefix), "", col)
+            new_name = sub(prefix, "", col)
             vals = data[[col]] / dt
             data[[new_name]] = c(vals[1], diff(vals))
         }
-        data[total_cols] = NULL
     }
 
     attr(data, "dt") = dt
@@ -197,6 +236,68 @@ compute_incidence = function(data)
     class(data) = orig_class
     data
 }
+
+# Remove totals columns from data
+remove_totals = function(data)
+{
+    prefix = paste0("^", cumulative_prefix)
+    total_cols = grep(prefix, names(data), value = TRUE)
+    data[total_cols] = NULL
+    return (data)
+}
+
+# Compute "record" statements for each row of the data.
+compute_recordings = function(model, params, data)
+{
+    if (is.null(model$recorder)) return(data)
+
+    state_cols = setdiff(names(data), "t")
+    state_vecs = as.list(data[state_cols])
+    t_vec = data[[1]]
+    n = length(t_vec)
+
+    recordings = vector(mode = "list", n)
+    if (model$type == "ODE" || model$type == "difference") {
+        for (r in seq_len(n)) {
+            recordings[[r]] = model$recorder(t_vec[r], lapply(state_vecs, "[", r), params)
+        }
+    } else if (model$type == "SSA") {
+        # SSA equations body converts t from relative to absolute by adding
+        # params$time[1]. Recorder shares that body, so we pass relative t
+        # here (data t is already absolute) to avoid double-counting.
+        start_time = params$time[1]
+        for (r in seq_len(n)) {
+            recordings[[r]] = model$recorder(lapply(state_vecs, "[", r), params, t_vec[r] - start_time)
+        }
+    } else {
+        stop("Unknown model type.")
+    }
+    recordings = as.data.frame(data.table::rbindlist(recordings, fill = TRUE))
+    result = cbind(data, recordings)
+    attr(result, "dt") = attr(data, "dt")
+    attr(result, "geom") = attr(data, "geom")
+    result
+}
+
+# Build recorder function from equations function.
+# equations function must contain the line `record = modeller:::null_record`
+# and one return statement.
+build_recorder = function(equations)
+{
+    recorder = NULL
+    if (elixir::expr_detect(body(equations), { record(...A) })) {
+        recorder = equations
+        rec = body(recorder)
+        rec = elixir::expr_replace(rec, { record = modeller:::null_record },
+            { { .rlist = list(); record = function(...) .rlist <<- c(.rlist, list(...)) } })
+        rec = elixir::expr_replace(rec, { return(..B) }, { return (.rlist) })
+        body(recorder) = rec
+    }
+    return (recorder)
+}
+
+# Dummy record function
+null_record = function(...) { }
 
 # Helper to detect and issue a warning about some problem with the model
 # results.
@@ -213,7 +314,8 @@ detect_problem = function(result, predicate, description, fix)
 standard_checks = function(result)
 {
     detect_problem(result, \(x) x < 0, "Negative compartment",
-        "This may be because because parameters or initial conditions are negative, step size is too small, or the model logic is incorrect.")
+        "This may be because parameters or initial conditions are negative, step size is too large, or the model logic is incorrect.")
     detect_problem(result, \(x) !is.finite(x), "Non-finite number",
-        "This may be because the model is generating NAs or conducting undefined mathematical operations (such as log(-1) or division by zero).")
+        paste("This may be because the model is generating NAs or conducting undefined mathematical operations (such as log(-1) or division by zero).",
+            "Some ODE-solving methods may generate undefined numbers."))
 }

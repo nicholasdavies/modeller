@@ -4,9 +4,9 @@
 \name{modeller-package}
 \alias{modeller}
 \alias{modeller-package}
-\title{Interactive Infectious Disease Modelling}
+\title{Interactive dynamical systems modelling}
 \description{
-Build, run, and interactively explore compartmental infectious disease
+Build, run, and interactively explore compartmental dynamical systems
 models using deterministic (ODE), stochastic (SSA), and discrete-time
 (difference equation) solvers.
 }
@@ -21,10 +21,10 @@ The typical workflow is:
 }
 \section{Model specification}{
 
-Equations are written as plain R functions that reference compartment and
-parameter names directly. The package transforms these into the form needed
-by the underlying solvers (\link{deSolve} for ODEs, \link{adaptivetau} for SSA,
-simple iteration for difference equations).
+Equations are written as specially-formatted R functions that reference
+compartment and parameter names directly. The package transforms these into
+the form needed by the underlying solvers (\link{deSolve} for ODEs, \link{adaptivetau}
+for SSA, simple iteration for difference equations).
 }
 
 \author{

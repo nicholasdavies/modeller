@@ -42,7 +42,7 @@ nice_labels = function(x)
 
 nice_scales = list(
     ggplot2::scale_x_continuous(breaks = nice_breaks, labels = nice_labels,
-        expand = ggplot2::expansion(mult = 1e-6)),
+        expand = ggplot2::expansion(mult = 1e-3)),
     ggplot2::scale_y_continuous(breaks = nice_breaks, labels = nice_labels,
         expand = ggplot2::expansion(mult = c(1e-3, 0.02)))
 )
@@ -51,7 +51,9 @@ resolve_palette = function(palette) {
     if (is.function(palette)) return(palette)
     viridis_palettes = c("viridis", "magma", "plasma", "inferno")
     base_palettes = c("Okabe-Ito", "R4", "Tableau 10")
-    if (palette %in% viridis_palettes) {
+    if (palette == "Grey") {
+        function(n) rep(c("#000000", "#7F7F7F"), length.out = n)
+    } else if (palette %in% viridis_palettes) {
         scales::viridis_pal(option = palette)
     } else if (palette %in% base_palettes) {
         function(n) unname(palette.colors(n, palette = palette))
@@ -60,6 +62,14 @@ resolve_palette = function(palette) {
     } else {
         scales::brewer_pal(palette = palette)
     }
+}
+
+# Linetypes for the "Grey" palette: paired with the alternating colours so
+# that each pair of black + grey shares a linetype, then the linetype
+# advances. Solid, dashed, dotted, dotdash; recycled if more series.
+grey_linetypes = function(n) {
+    rep(c("solid", "solid", "dashed", "dashed",
+          "dotted", "dotted", "dotdash", "dotdash"), length.out = n)
 }
 
 #' Plot model results
@@ -73,12 +83,14 @@ resolve_palette = function(palette) {
 #' @param overlay Optional data frame of observed data to overlay as points.
 #'   Should contain a time column and one or more columns matching
 #'   compartment or incidence names.
-#' @param palette Colour palette: a palette name (e.g. `"Set1"`, `"Okabe-Ito"`,
+#' @param palette Colour palette: a palette name (e.g. `"Dark2"`, `"Okabe-Ito"`,
 #'   `"viridis"`) or a function that takes `n` and returns `n` colours.
 #' @param legend Legend position: `"right"`, `"left"`, `"top"`, `"bottom"`,
 #'   or `"none"`.
 #' @param time_col Name of the time column in `overlay`. Default `"t"`.
 #' @param vline Optional x-intercept for a vertical reference line.
+#' @param compare Optional second `model_result` to draw underneath in
+#'   thinner, fainter lines for visual comparison.
 #' @param ... Ignored.
 #'
 #' @return The [ggplot2::ggplot] object (returned by `print()`).
@@ -86,9 +98,13 @@ resolve_palette = function(palette) {
 #' @examples
 #' m = ode_model(
 #'     init = list(S = 999, I = 1, R = 0),
-#'     params = list(beta = 0.3, gamma = 0.1),
-#'     model = function() list(-beta * S * I, beta * S * I - gamma * I, gamma * I),
-#'     times = list(duration = 50)
+#'     params = list(beta = 0.3, gamma = 0.1, time = 50),
+#'     equations = function() {
+#'         N = S + I + R
+#'         d(S) = -beta * I / N * S
+#'         d(I) =  beta * I / N * S - gamma * I
+#'         d(R) =  gamma * I
+#'     }
 #' )
 #' result = run_model(m)
 #' plot(result)
@@ -96,7 +112,8 @@ resolve_palette = function(palette) {
 #'
 #' @export
 plot.model_result = function(x, series = NULL, overlay = NULL,
-    palette = "Set1", legend = "right", time_col = "t", vline = NULL, ...)
+    palette = "Dark2", legend = "right", time_col = "t", vline = NULL,
+    title = NULL, xlab = "Time", ylab = NULL, compare = NULL, ...)
 {
     # Determine all series names (used for consistent factor levels / colours)
     all_names = setdiff(names(x), "t")
@@ -113,20 +130,56 @@ plot.model_result = function(x, series = NULL, overlay = NULL,
     # Choose geom from attribute: "step" for discrete (SSA), "line" for continuous (ODE)
     geom = if (identical(attr(x, "geom"), "step")) ggplot2::geom_step else ggplot2::geom_line
 
-    p = ggplot2::ggplot(plot_data) +
-        geom(ggplot2::aes(x = t, y = value, colour = name), linewidth = 1) +
-        ggplot2::labs(x = "Time", y = NULL, colour = NULL) +
+    # The "Grey" palette also varies linetype with series so series remain
+    # distinguishable in monochrome.
+    use_linetypes = identical(palette, "Grey")
+    line_aes = if (use_linetypes) {
+        ggplot2::aes(x = t, y = value, colour = name, linetype = name)
+    } else {
+        ggplot2::aes(x = t, y = value, colour = name)
+    }
+
+    p = ggplot2::ggplot() +
+        ggplot2::geom_blank(data = data.frame(t = x$t[1], value = 0),
+            ggplot2::aes(x = t, y = value)) +
+        ggplot2::labs(title = title, x = xlab, y = ylab, colour = NULL, linetype = NULL) +
         nice_scales +
         cowplot::theme_cowplot(font_size = 12) +
         ggplot2::theme(
             axis.line = ggplot2::element_line(linewidth = 0.3),
             axis.ticks = ggplot2::element_line(linewidth = 0.3),
-            legend.position = legend
+            legend.position = legend,
+            plot.margin = ggplot2::margin(t = 5, r = 15, b = 5, l = 5)
         )
 
-    # Vertical line
+    # Comparison series, drawn underneath in thinner, fainter lines
+    if (!is.null(compare)) {
+        compare_visible = intersect(visible, setdiff(names(compare), "t"))
+        if (length(compare_visible) > 0) {
+            compare_long = tidyr::pivot_longer(compare[c("t", compare_visible)], cols = -1)
+            compare_long$name = factor(compare_long$name, levels = all_names)
+            compare_geom = if (identical(attr(compare, "geom"), "step")) ggplot2::geom_step else ggplot2::geom_line
+            p = p + compare_geom(data = compare_long, line_aes,
+                linewidth = 0.6, alpha = 0.7)
+        }
+    }
+
+    p = p + geom(data = plot_data, line_aes, linewidth = 1)
+
+    # Vertical line with crosses at compartment values
     if (!is.null(vline)) {
         p = p + ggplot2::geom_vline(xintercept = vline)
+        idx = findInterval(vline, x$t)
+        if (idx >= 1 && idx <= nrow(x) && length(visible) > 0) {
+            vline_data = data.frame(
+                t = vline,
+                name = factor(visible, levels = all_names),
+                value = as.numeric(x[idx, visible])
+            )
+            p = p + ggplot2::geom_point(data = vline_data,
+                ggplot2::aes(x = t, y = value, colour = name),
+                shape = 4, size = 3, stroke = 0.5, show.legend = FALSE)
+        }
     }
 
     # Overlay data points
@@ -139,17 +192,19 @@ plot.model_result = function(x, series = NULL, overlay = NULL,
             overlay_long = overlay_long[overlay_long$name %in% series, ]
         }
         p = p + ggplot2::geom_point(data = overlay_long,
-            ggplot2::aes(x = .data[[time_col]], y = value, colour = name),
-            size = 2.5) +
+                ggplot2::aes(x = .data[[time_col]], y = value, colour = name), size = 2.5) +
             ggplot2::geom_point(data = overlay_long,
-            ggplot2::aes(x = .data[[time_col]], y = value),
-            shape = 1, colour = "black", size = 2.5, stroke = 0.4)
+                ggplot2::aes(x = .data[[time_col]], y = value),
+                shape = 1, colour = "black", size = 2.5, stroke = 0.4)
     }
 
     # Apply palette
     palette_fn = resolve_palette(palette)
     n_colours = length(all_names)
     p = p + ggplot2::scale_colour_manual(values = palette_fn(n_colours))
+    if (use_linetypes) {
+        p = p + ggplot2::scale_linetype_manual(values = grey_linetypes(n_colours))
+    }
 
     p
 }

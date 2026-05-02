@@ -4,25 +4,28 @@
 \alias{difference_model}
 \title{Create a discrete-time difference equation model}
 \usage{
-difference_model(init, params, equations, times, options = list())
+difference_model(init, params, equations, options = list())
 }
 \arguments{
 \item{init}{Named list of initial compartment values (e.g.
 \code{list(S = 999, I = 1, R = 0)}).}
 
-\item{params}{Named list of parameter values (e.g.
-\code{list(beta = 0.3, gamma = 0.1)}).}
+\item{params}{Named list of parameter values. Must include \code{time}, which
+controls the simulation time span and can be specified as:
+\itemize{
+\item A single number \code{N} (duration): simulates from 0 to N with step 1.
+\item \code{c(start, stop)}: simulates from start to stop with step 1.
+\item \code{c(start, stop, step)}: simulates from start to stop with the given
+step size.
+}
 
-\item{equations}{A function with no arguments. Inside the function body,
-write equations using compartment and parameter names as if they were
-ordinary variables. Return a list giving the next value of each
-compartment, in the same order as \code{init}. Compartments whose names start
+Inside the equations function, \code{time} is a three-element numeric vector
+\code{c(start, stop, step)} regardless of how it was originally specified.}
+
+\item{equations}{A function with no arguments. Use \code{new(X) = ...} to set
+the next value of each compartment \code{X}. Compartments whose names start
 with \code{total_} are treated as cumulative counters; the corresponding
 incidence is computed automatically when plotting.}
-
-\item{times}{Named list controlling the time span. Accepts \code{start},
-\code{stop}, \code{duration}, and \code{step}. At minimum, provide \code{duration} or
-\code{stop}. Defaults: \code{start = 0}, \code{stop = 100}, \code{step = 1}.}
 
 \item{options}{Named list of solver options. No solver options are
 available for difference equation models.}
@@ -34,32 +37,29 @@ and \code{\link[=show_model]{show_model()}} to launch the interactive app.
 }
 \description{
 Defines a compartmental model solved by iterating a difference equation.
-At each time step, the equations function calculates and returns the
-next value of every compartment. For example, if compartment \code{S} starts
-at 1000 and 10 individuals are infected this step, the equations should
-return \code{S = S - 10} (i.e. 990), not the change (\code{-10}).
+At each time step, the equations function calculates the next value of
+every compartment using the \code{new()} syntax. For example, if individuals
+leave compartment \code{S} at rate \code{alpha * S}, write
+\code{new(S) = S - alpha * S * dt}.
 }
 \details{
 The equations function is written as a plain R function with no arguments.
 Inside the function body, compartment names (from \code{init}) and parameter
 names (from \code{params}) can be used as ordinary variables — the package
-makes them available automatically. The variable \code{dt} (the time step
-size) is also available.
+makes them available automatically. The variables \code{t} (the current time)
+and \code{dt} (the time step size) are also available.
 }
 \examples{
 m = difference_model(
     init = list(S = 999, I = 1, R = 0),
-    params = list(beta = 0.3, gamma = 0.1),
+    params = list(beta = 0.3, gamma = 0.1, time = 100),
     equations = function() {
         N = S + I + R
         lambda = beta * I / N
-        list(
-            S = S - lambda * S,
-            I = I + lambda * S - gamma * I,
-            R = R + gamma * I
-        )
-    },
-    times = list(duration = 100)
+        new(S) = S - lambda * S
+        new(I) = I + lambda * S - gamma * I
+        new(R) = R + gamma * I
+    }
 )
 m
 result = run_model(m)

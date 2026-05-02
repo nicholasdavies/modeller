@@ -22,7 +22,8 @@ params = list(
     latent_period = 2,
     infectious_period = 5,
     R0 = 3, # to fit
-    reporting_rate = 0.5 # to fit
+    reporting_rate = 0.5, # to fit
+    time = c(0, 75)
 )
 
 # Model equations
@@ -40,14 +41,8 @@ equations = function()
     d(total_infection) = beta * I/N * S * reporting_rate
 }
 
-# Times
-times = list(
-    start = 0,
-    stop = 75
-)
-
 # Build model
-m = ode_model(init, params, equations, times)
+m = ode_model(init, params, equations)
 
 
 # Fitting demo
@@ -60,9 +55,7 @@ objective = function(model, theta, data)
 
     results = run_model(m, params = params)
 
-    # TODO do this in the model running code itself.
-    cases_predicted = c(0, diff(results$total_infection))
-    dpois(data$cases, cases_predicted, log = TRUE)
+    dpois(data$cases, results$infection, log = TRUE)
 }
 
 
