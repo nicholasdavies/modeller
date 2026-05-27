@@ -39,3 +39,5 @@ Imports:
     shiny,
     tidyr,
     utils
+URL: https://github.com/nicholasdavies/modeller
+BugReports: https://github.com/nicholasdavies/modeller/issues
