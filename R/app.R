@@ -47,21 +47,34 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
     # Create Shiny app
 
     init_elements = list(shiny::tags$p(shiny::tags$strong("Initial conditions")))
+    init_defaults = list()
     for (n in names(init)) {
         if (startsWith(n, cumulative_prefix)) next
         id = paste0("model_init_", n)
+        init_defaults[[id]] = init[[n]]
         init_elements[[length(init_elements) + 1]] = inshiny::inline(n, "(0) = ",
             inshiny::inline_number(id, value = init[[n]],
                 placeholder = init[[n]], min = 0, arrows = FALSE))
     }
 
     param_elements = list(shiny::tags$p(shiny::tags$strong("Parameters")))
+    param_defaults = list()
     for (n in setdiff(names(params), "time")) {
         id = paste0("model_param_", n)
+        param_defaults[[id]] = params[[n]]
         param_elements[[length(param_elements) + 1]] = inshiny::inline(n, " = ",
             inshiny::inline_number(id, value = params[[n]],
                 placeholder = init[[n]], min = 0, arrows = FALSE))
     }
+
+    # Reset button: clears any user changes to inputs above (init, params,
+    # solver settings) and restores the values they had when show_model() was
+    # called. Plot/UI options (palette, legend position, etc.) are unaffected.
+    reset_defaults = c(init_defaults, param_defaults,
+        model$shiny$defaults %||% list())
+    reset_element = shiny::div(style = "margin-top: 15px;",
+        shiny::actionButton("reset_inputs", "Reset to defaults",
+            icon = shiny::icon("rotate-left"), class = "btn-sm"))
 
     # Colour palette choices
     palette_choices = c(
@@ -139,7 +152,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             )
         ),
         sidebar = bslib::sidebar(title = "Model explorer", open = "always",
-            init_elements, param_elements, extra_elements)
+            init_elements, param_elements, extra_elements, reset_element)
     )
 
     server = function(input, output) {
@@ -197,6 +210,13 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
 
         shiny::observeEvent(input$clear_messages, {
             model_messages(NULL)
+        })
+
+        # Reset button: push the stored defaults back into each input.
+        shiny::observeEvent(input$reset_inputs, {
+            for (id in names(reset_defaults)) {
+                inshiny::update_inline(id, value = reset_defaults[[id]])
+            }
         })
 
 

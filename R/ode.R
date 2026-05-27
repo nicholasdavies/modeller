@@ -81,10 +81,12 @@ ode_model = function(init, params, equations, options = list())
 
     # .dlist defaults to zero-vectors of the right length so a compartment
     # without d() stays constant (rate of change = 0).
+    unpack_expr = build_unpack_expr(schema)
+
     body(equations) = rlang::expr({
         record = modeller:::null_record
         .dlist = !!lapply(init, function(x) numeric(length(x)))
-        state_list = modeller:::unpack_state(.state, !!schema)
+        state_list = !!unpack_expr
         with(c(state_list, .params), !!eq)
         return (list(modeller:::pack_state(.dlist)))
     })
@@ -122,12 +124,20 @@ ode_model = function(init, params, equations, options = list())
             options = list(method = input$ode_method))
     }
 
+    # Default values for solver-settings inputs (used by the Reset button)
+    shiny_defaults = list(
+        ode_method = default_options$method,
+        ode_t0 = params$time[1],
+        ode_tt = params$time[2] - params$time[1],
+        ode_dt = params$time[3]
+    )
+
     structure(list(
         type = "ODE",
         init = init, params = params,
         equations = equations, recorder = recorder,
         options = modifyList(list(method = "lsode"), options),
-        shiny = list(ui = shiny_ui, run = shiny_run)
+        shiny = list(ui = shiny_ui, run = shiny_run, defaults = shiny_defaults)
     ), class = c("ode_model", "modeller"))
 }
 

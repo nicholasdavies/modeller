@@ -34,6 +34,8 @@ params <- list(
 # Model equations
 equations <- function()
 {
+    R0 <- R0 * (1 + 0.8 * sin(t * 2 * pi / 50))
+
     infectious_rate <- 1 / latent_period
     rec_rate <- 1 / infectious_period
     beta <- R0 / infectious_period

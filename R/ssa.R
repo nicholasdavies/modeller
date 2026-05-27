@@ -144,11 +144,13 @@ ssa_model = function(init, params, equations, options = list())
 
     # Put equations function into correct form
     formals(equations) = alist(.state =, .params =, t =)
+    unpack_expr = build_unpack_expr(schema)
+
     body(equations) = rlang::expr({
         record = modeller:::null_record
         .tvec = numeric(!!length(transitions))
         t = t + .params$time[1]
-        state_list = modeller:::unpack_state(.state, !!schema)
+        state_list = !!unpack_expr
         with(c(state_list, .params), !!eq)
         return (.tvec)
     })
@@ -189,13 +191,22 @@ ssa_model = function(init, params, equations, options = list())
                 epsilon = input$ssa_epsilon))
     }
 
+    # Default values for solver-settings inputs (used by the Reset button)
+    shiny_defaults = list(
+        ssa_seed = default_options$seed %||% 1,
+        ssa_method = default_options$method,
+        ssa_epsilon = default_options$epsilon,
+        ssa_t0 = params$time[1],
+        ssa_tt = params$time[2] - params$time[1]
+    )
+
     structure(list(
         type = "SSA",
         init = init, params = params,
         equations = equations, recorder = recorder,
         transitions = transitions,
         options = default_options,
-        shiny = list(ui = shiny_ui, run = shiny_run)
+        shiny = list(ui = shiny_ui, run = shiny_run, defaults = shiny_defaults)
     ), class = c("ssa_model", "modeller"))
 }
 

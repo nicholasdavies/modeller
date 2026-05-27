@@ -50,18 +50,15 @@ equations = function() {
         # (newborns) starts fresh from `births`. Vaccination is applied to
         # the cohort moving into age k-1: vacc_now[k] of the entering
         # cohort goes straight to Imm.
-        prev_with = function(v, first) c(first, head(v, -1))
-        prev      = function(v) c(0, head(v, -1))
-
-        new(Sus)    = prev_with(Sus, births) * (1 - vacc_now) * (1 - foi * dt)
-        new(Preinf) = prev(Preinf)
-                    + foi * prev_with(Sus, births) * (1 - vacc_now) * dt
-                    - prev(Preinf) * infous_rate * dt
-        new(Infous) = prev(Infous)
-                    + (prev(Preinf) * infous_rate - prev(Infous) * rec_rate) * dt
-        new(Imm)    = prev(Imm)
-                    + prev(Infous) * rec_rate * dt
-                    + prev_with(Sus, births) * vacc_now
+        new(Sus)    = c(births, Sus[1:59]) * (1 - vacc_now) * (1 - foi * dt)
+        new(Preinf) = c(0, Preinf[1:59])
+                    + foi * c(births, Sus[1:59]) * (1 - vacc_now) * dt
+                    - c(0, Preinf[1:59]) * infous_rate * dt
+        new(Infous) = c(0, Infous[1:59])
+                    + (c(0, Preinf[1:59]) * infous_rate - c(0, Infous[1:59]) * rec_rate) * dt
+        new(Imm)    = c(0, Imm[1:59])
+                    + c(0, Infous[1:59]) * rec_rate * dt
+                    + c(births, Sus[1:59]) * vacc_now
     } else {
         # Within-year disease dynamics, no aging
         new(Sus)    = Sus    - foi * Sus * dt
@@ -82,8 +79,10 @@ equations = function() {
 
 m = difference_model(init, params, equations)
 
-# This is a 300-year run with 0.5-day steps. ~30 seconds on a modern laptop.
+# This is a 300-year run with 1-day steps. ~3 seconds on a modern laptop.
 system.time({result = run_model(m)})
+
+show_model(m)
 
 # show_model() doesn't yet support vector-valued compartments. Plot the
 # scalar recordings directly instead.
@@ -91,7 +90,7 @@ library(ggplot2)
 
 # Susceptibles by age, over time
 ggplot(result, aes(x = year)) +
-    geom_line(aes(y = prop_sus_5,   colour = "age 5")) +
+    geom_line(aes(y = prop_sus_5,   colour = "age 05")) +
     geom_line(aes(y = prop_sus_20,  colour = "age 20")) +
     geom_line(aes(y = prop_sus_30,  colour = "age 30")) +
     geom_line(aes(y = prop_sus_all, colour = "all"),  linetype = "dashed") +

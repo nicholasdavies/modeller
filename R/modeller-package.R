@@ -222,6 +222,18 @@ pack_state = function(state_list)
 
 # Unpack a flat numeric vector into a named list of vectors using a schema.
 # The complement of pack_state.
+# Build a literal list expression that slices a flat state vector into a
+# named list of compartments, with the slice indices baked in at model
+# construction time. Used in equations bodies to avoid the per-call cost of
+# unpack_state's schema loop.
+build_unpack_expr = function(schema)
+{
+    ends = cumsum(schema)
+    starts = c(1L, head(ends, -1L) + 1L)
+    parts = sprintf("%s = .state[%d:%d]", names(schema), starts, ends)
+    parse(text = sprintf("list(%s)", paste(parts, collapse = ", ")))[[1]]
+}
+
 unpack_state = function(flat, schema)
 {
     out = vector("list", length(schema))
@@ -373,9 +385,13 @@ null_record = function(...) { }
 # results.
 detect_problem = function(result, predicate, description, fix)
 {
-    problematic = apply(result[, -1], 2, predicate)
-    if (any(problematic, na.rm = TRUE)) {
-        first_row = which(problematic, arr.ind = TRUE)[1, 1]
+    # apply() with margin = 2 was the bottleneck for large outputs (it
+    # builds a transposed copy via aperm). Coerce once to a matrix and let
+    # the predicate work on the whole numeric vector.
+    mat = as.matrix(result[, -1, drop = FALSE])
+    flagged = predicate(mat)
+    if (any(flagged, na.rm = TRUE)) {
+        first_row = which(flagged, arr.ind = TRUE)[1, 1]
         warning(description, " detected at time t = ",
             result[first_row, 1], ". ", fix, call. = FALSE)
     }

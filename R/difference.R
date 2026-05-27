@@ -78,18 +78,25 @@ difference_model = function(init, params, equations, options = list())
 
     schema = vapply(init, length, integer(1))
 
-    # .nlist defaults to current (vector-aware) state so a compartment without
-    # new() stays at its current value across the step.
+    # Pre-compute the unpack as a literal list expression with the state
+    # slice indices baked in. Avoids a function call and a per-call schema
+    # loop on every iteration.
+    unpack_expr = build_unpack_expr(schema)
+
+    # To avoid a second pass for `record()` calls, capture both in first run
+    # and keep model$recorder set to NULL.
     body(equations) = rlang::expr({
-        record = modeller:::null_record
-        state_list = modeller:::unpack_state(.state, !!schema)
+        .rlist = list()
+        record = function(...) .rlist <<- c(.rlist, list(...))
+        state_list = !!unpack_expr
         .nlist = state_list
         with(c(list(dt = .params$.dt), state_list, .params), !!eq)
-        return (modeller:::pack_state(.nlist))
+        # use.names = FALSE: set names at end of run_model.difference_model
+        list(state = unlist(.nlist, use.names = FALSE), records = .rlist)
     })
 
-    # Build recorder function
-    recorder = build_recorder(equations)
+    # No separate recorder for difference: records are produced inline.
+    recorder = NULL
 
     # Shiny UI elements for solver settings
     shiny_ui = list(
@@ -113,12 +120,19 @@ difference_model = function(init, params, equations, options = list())
             params = params_list)
     }
 
+    # Default values for solver-settings inputs (used by the Reset button)
+    shiny_defaults = list(
+        diff_t0 = params$time[1],
+        diff_tt = params$time[2] - params$time[1],
+        diff_dt = params$time[3]
+    )
+
     structure(list(
         type = "difference",
         init = init, params = params,
         equations = equations, recorder = recorder,
         options = options,
-        shiny = list(ui = shiny_ui, run = shiny_run)
+        shiny = list(ui = shiny_ui, run = shiny_run, defaults = shiny_defaults)
     ), class = c("difference_model", "modeller"))
 }
 
@@ -132,25 +146,47 @@ run_model.difference_model = function(model, init = NULL, params = NULL,
     params$.dt = params$time[3]
 
     tval = seq(params$time[1], params$time[2], params$time[3])
-    state = pack_state(init)
+    # Names not needed for the simulation loop; output column names are set
+    # at the end. Slicing an unnamed vector is faster than a named one.
+    state = unlist(init, use.names = FALSE)
     n = length(tval)
 
-    # Pre-allocate matrix: rows = time steps, cols = t + compartments
+    # Pre-allocate matrix and per-row records list. The equations function
+    # returns both next-state and any record() values produced this step.
+    # records[[i]] corresponds to the state AT row i (the input to the step,
+    # not the output), to match the post-hoc semantics of compute_recordings.
     result = matrix(NA_real_, nrow = n, ncol = 1L + length(state))
-    result[1, ] = c(tval[1], state)
+    result[, 1] = tval
+    cols_state = seq_len(length(state)) + 1L  # state cols 2..end
+    result[1, cols_state] = state
+    all_records = vector("list", n)
 
-    for (i in 2:n) {
-        state = model$equations(tval[i - 1], state, params)
-        result[i, ] = c(tval[i], state)
+    if (n >= 2) {
+        for (i in seq_len(n - 1L)) {
+            res = model$equations(tval[i], state, params)
+            all_records[[i]] = res$records
+            state = res$state
+            result[i + 1L, cols_state] = state
+        }
     }
+    # Final call to capture records for the last output row's state. The
+    # returned next-state is discarded (beyond the simulation horizon).
+    res = model$equations(tval[n], state, params)
+    all_records[[n]] = res$records
 
     data = as.data.frame(result)
-    names(data) = c("t", names(state))
+    names(data) = c("t", build_flat_names(vapply(model$init, length, integer(1))))
 
     attr(data, "dt") = params$time[3]
     attr(data, "geom") = "step"
     data = compute_incidence(data)
-    data = compute_recordings(model, params, data)
+    if (any(lengths(all_records) > 0)) {
+        records_df = as.data.frame(data.table::rbindlist(all_records, fill = TRUE))
+        old_attrs = attributes(data)[c("dt", "geom")]
+        data = cbind(data, records_df)
+        attr(data, "dt") = old_attrs$dt
+        attr(data, "geom") = old_attrs$geom
+    }
     data = remove_totals(data)
     class(data) = c("model_result", class(data))
 
