@@ -18,10 +18,10 @@ usethis::git_vaccinate()
 usethis::use_git()
 
 
-#### LEFT OFF HERE ######
-
 usethis::use_github()
 usethis::use_github_action()
+
+#### LEFT OFF HERE ######
 
 # Web site
 usethis::use_pkgdown_github_pages()
