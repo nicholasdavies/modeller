@@ -48,7 +48,7 @@ and \code{\link[=show_model]{show_model()}} to launch the interactive app.
 }
 \description{
 Defines a compartmental model solved with Gillespie's stochastic simulation
-algorithm via \link{adaptivetau}. Transitions are defined using the \code{tx()}
+algorithm via \code{adaptivetau}. Transitions are defined using the \code{tx()}
 syntax: \code{tx(A -> B) = rate} specifies that compartment \code{A} loses one
 individual and compartment \code{B} gains one, at the given rate. For example,
 \code{tx(S -> I) = beta * S * I / N}.

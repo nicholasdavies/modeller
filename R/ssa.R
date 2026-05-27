@@ -1,7 +1,7 @@
 #' Create a stochastic SSA model
 #'
 #' Defines a compartmental model solved with Gillespie's stochastic simulation
-#' algorithm via [adaptivetau]. Transitions are defined using the `tx()`
+#' algorithm via `adaptivetau`. Transitions are defined using the `tx()`
 #' syntax: `tx(A -> B) = rate` specifies that compartment `A` loses one
 #' individual and compartment `B` gains one, at the given rate. For example,
 #' `tx(S -> I) = beta * S * I / N`.
@@ -147,7 +147,7 @@ ssa_model = function(init, params, equations, options = list())
     unpack_expr = build_unpack_expr(schema)
 
     body(equations) = rlang::expr({
-        record = modeller:::null_record
+        record = function(...) NULL
         .tvec = numeric(!!length(transitions))
         t = t + .params$time[1]
         state_list = !!unpack_expr

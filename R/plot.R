@@ -1,4 +1,7 @@
-nice_breaks = scales::breaks_extended(Q = c(1, 5, 2))
+# Wrap the closure so labeling::extended is only referenced at runtime,
+# not embedded in the package namespace (which would require declaring
+# labeling in Imports).
+nice_breaks = function(x) scales::breaks_extended(Q = c(1, 5, 2))(x)
 # nice_labels = scales::label_number(big.mark = ",",
 #     scale_cut = c(" " = 0, " million" = 1e6, " billion" = 1e9, " trillion" = 1e12))
 
@@ -56,7 +59,7 @@ resolve_palette = function(palette) {
     } else if (palette %in% viridis_palettes) {
         scales::viridis_pal(option = palette)
     } else if (palette %in% base_palettes) {
-        function(n) unname(palette.colors(n, palette = palette))
+        function(n) unname(grDevices::palette.colors(n, palette = palette))
     } else if (palette == "ggplot2") {
         scales::hue_pal()
     } else {
@@ -89,6 +92,9 @@ grey_linetypes = function(n) {
 #'   or `"none"`.
 #' @param time_col Name of the time column in `overlay`. Default `"t"`.
 #' @param vline Optional x-intercept for a vertical reference line.
+#' @param title Plot title. `NULL` (default) for no title.
+#' @param xlab X-axis label. Default `"Time"`. `NULL` for no label.
+#' @param ylab Y-axis label. `NULL` (default) for no label.
 #' @param compare Optional second `model_result` to draw underneath in
 #'   thinner, fainter lines for visual comparison.
 #' @param ... Ignored.

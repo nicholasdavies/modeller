@@ -23,10 +23,18 @@ The typical workflow is:
 
 Equations are written as specially-formatted R functions that reference
 compartment and parameter names directly. The package transforms these into
-the form needed by the underlying solvers (\link{deSolve} for ODEs, \link{adaptivetau}
+the form needed by the underlying solvers (\code{deSolve} for ODEs, \code{adaptivetau}
 for SSA, simple iteration for difference equations).
 }
 
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/nicholasdavies/modeller}
+  \item Report bugs at \url{https://github.com/nicholasdavies/modeller/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Nick Davies \email{nicholas.davies@lshtm.ac.uk}
 

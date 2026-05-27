@@ -83,12 +83,15 @@ ode_model = function(init, params, equations, options = list())
     # without d() stays constant (rate of change = 0).
     unpack_expr = build_unpack_expr(schema)
 
+    flat_names = build_flat_names(schema)
     body(equations) = rlang::expr({
-        record = modeller:::null_record
+        record = function(...) NULL
         .dlist = !!lapply(init, function(x) numeric(length(x)))
         state_list = !!unpack_expr
         with(c(state_list, .params), !!eq)
-        return (list(modeller:::pack_state(.dlist)))
+        .flat = unlist(.dlist, use.names = FALSE)
+        names(.flat) = !!flat_names
+        return (list(.flat))
     })
 
     # Build recorder function

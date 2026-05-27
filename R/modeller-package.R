@@ -14,15 +14,26 @@
 #' @section Model specification:
 #' Equations are written as specially-formatted R functions that reference
 #' compartment and parameter names directly. The package transforms these into
-#' the form needed by the underlying solvers ([deSolve] for ODEs, [adaptivetau]
+#' the form needed by the underlying solvers (`deSolve` for ODEs, `adaptivetau`
 #' for SSA, simple iteration for difference equations).
 #'
 #' @keywords internal
+#' @importFrom utils head modifyList
+#' @importFrom stats optim plogis qlogis
 "_PACKAGE"
 
 ## usethis namespace: start
 ## usethis namespace: end
 NULL
+
+# Symbols used in non-standard evaluation contexts (elixir pattern matching
+# in expr_match/expr_replace and ggplot2 aesthetic mappings) that R CMD
+# check otherwise flags as undefined globals.
+utils::globalVariables(c(
+    "?", "d", "d<-", "new", "new<-", "tx",
+    "..A", "..B", "...A", ".params",
+    ".data", "name", "value"
+))
 
 #' Run a model
 #'
@@ -362,24 +373,24 @@ compute_recordings = function(model, params, data)
 }
 
 # Build recorder function from equations function.
-# equations function must contain the line `record = modeller:::null_record`
-# and one return statement.
+# The first statement of body(equations) is the no-op `record` assignment,
+# which is swapped for one that captures values into a local `.rlist`. The
+# return statement is then rewritten to return that list.
 build_recorder = function(equations)
 {
     recorder = NULL
     if (elixir::expr_detect(body(equations), { record(...A) })) {
         recorder = equations
         rec = body(recorder)
-        rec = elixir::expr_replace(rec, { record = modeller:::null_record },
-            { { .rlist = list(); record = function(...) .rlist <<- c(.rlist, list(...)) } })
+        rec[[2]] = rlang::expr({
+            .rlist = list()
+            record = function(...) .rlist <<- c(.rlist, list(...))
+        })
         rec = elixir::expr_replace(rec, { return(..B) }, { return (.rlist) })
         body(recorder) = rec
     }
     return (recorder)
 }
-
-# Dummy record function
-null_record = function(...) { }
 
 # Helper to detect and issue a warning about some problem with the model
 # results.

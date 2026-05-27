@@ -39,6 +39,12 @@ or \code{"none"}.}
 
 \item{vline}{Optional x-intercept for a vertical reference line.}
 
+\item{title}{Plot title. \code{NULL} (default) for no title.}
+
+\item{xlab}{X-axis label. Default \code{"Time"}. \code{NULL} for no label.}
+
+\item{ylab}{Y-axis label. \code{NULL} (default) for no label.}
+
 \item{compare}{Optional second \code{model_result} to draw underneath in
 thinner, fainter lines for visual comparison.}
 
