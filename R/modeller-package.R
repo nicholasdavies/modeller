@@ -30,8 +30,8 @@ NULL
 # in expr_match/expr_replace and ggplot2 aesthetic mappings) that R CMD
 # check otherwise flags as undefined globals.
 utils::globalVariables(c(
-    "?", "d", "d<-", "new", "new<-", "tx",
-    "..A", "..B", "...A", ".params",
+    "?", "d", "d<-", "new", "new<-", "tx", "tx<-",
+    "..A", "..B", "..C", "...A", ".params",
     ".data", "name", "value"
 ))
 

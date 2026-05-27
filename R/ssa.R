@@ -62,24 +62,13 @@ ssa_model = function(init, params, equations, options = list())
 {
     params = validate_inputs(init, params, equations)
 
-    # Build transitions and edit body of equations function
+    # Build transitions and edit body of equations function. The arrow is
+    # extracted post-match (rather than baked into the elixir pattern)
+    # because a literal `tx(..A -> ..B) = ..C` in source produces a nested
+    # replacement-function LHS that confuses codetools during R CMD check.
     eq = body(equations)
-    txs = elixir::expr_match(eq, { tx(..A -> ..B) = ..C } ? { tx(..A -> ..B) <- ..C })
+    txs = elixir::expr_match(eq, { tx(..A) = ..C } ? { tx(..A) <- ..C })
     transitions = list()
-
-    # Parse a transition side (e.g. A, A + B, or 0) into compartment names.
-    parse_compartments = function(expr) {
-        if (is.call(expr) && identical(expr[[1]], as.name("+"))) {
-            c(parse_compartments(expr[[2]]), parse_compartments(expr[[3]]))
-        } else if (is.name(expr)) {
-            as.character(expr)
-        } else if (is.numeric(expr) && expr == 0) {
-            character(0)
-        } else {
-            stop("malformed transition: expected compartment name or 0, got `",
-                deparse(expr), "`", call. = FALSE)
-        }
-    }
 
     # Schema for vector compartments. Scalar -> length 1. Each tx() group
     # generates K transitions where K is the length of the vector
@@ -88,13 +77,22 @@ ssa_model = function(init, params, equations, options = list())
     schema = vapply(init, length, integer(1))
     flat_names = build_flat_names(schema)
     n_flat = length(flat_names)
-    flat_offsets = setNames(c(0L, head(cumsum(schema), -1L)), names(schema))
+    flat_offsets = c(0L, head(cumsum(schema), -1L))
+    names(flat_offsets) = names(schema)
 
     tvec_offset = 0L
     for (i in seq_along(txs)) {
         tx = txs[[i]]
-        from = parse_compartments(tx$A)
-        to = parse_compartments(tx$B)
+        # `tx$A` is the expression inside tx(...); must be `from -> to`,
+        # which R parses as `<-`(to, from).
+        arrow = tx$A
+        if (!is.call(arrow) || !identical(arrow[[1]], as.name("<-")) ||
+                length(arrow) != 3L) {
+            stop("malformed `tx()` call. Expected `tx(A -> B) = rate`.",
+                call. = FALSE)
+        }
+        from = parse_tx_side(arrow[[3]])
+        to = parse_tx_side(arrow[[2]])
 
         for (name in c(from, to)) {
             if (!name %in% names(init))
@@ -246,6 +244,20 @@ run_model.ssa_model = function(model, init = NULL, params = NULL,
     data
 }
 
+# Parse a transition side (e.g. A, A + B, or 0) into compartment names.
+parse_tx_side = function(expr)
+{
+    if (is.call(expr) && identical(expr[[1]], as.name("+"))) {
+        c(parse_tx_side(expr[[2]]), parse_tx_side(expr[[3]]))
+    } else if (is.name(expr)) {
+        as.character(expr)
+    } else if (is.numeric(expr) && expr == 0) {
+        character(0)
+    } else {
+        stop("malformed transition: expected compartment name or 0, got `",
+            deparse(expr), "`", call. = FALSE)
+    }
+}
 
 grid_rows = function(x, times)
 {
