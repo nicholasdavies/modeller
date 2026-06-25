@@ -50,6 +50,14 @@ nice_scales = list(
         expand = ggplot2::expansion(mult = c(1e-3, 0.02)))
 )
 
+# Extend a fixed set of colours to exactly n. Within range the first n are
+# returned unchanged; beyond the palette's natural maximum, interpolate so
+# series stay distinct rather than recycling or padding with NA.
+extend_colours = function(cols, n) {
+    cols = cols[!is.na(cols)]
+    if (n <= length(cols)) cols[seq_len(n)] else grDevices::colorRampPalette(cols)(n)
+}
+
 resolve_palette = function(palette) {
     if (is.function(palette)) return(palette)
     viridis_palettes = c("viridis", "magma", "plasma", "inferno")
@@ -59,11 +67,17 @@ resolve_palette = function(palette) {
     } else if (palette %in% viridis_palettes) {
         scales::viridis_pal(option = palette)
     } else if (palette %in% base_palettes) {
-        function(n) unname(grDevices::palette.colors(n, palette = palette))
+        # palette.colors() with no n returns the palette's full colour set.
+        full = unname(grDevices::palette.colors(palette = palette))
+        function(n) extend_colours(full, n)
     } else if (palette == "ggplot2") {
         scales::hue_pal()
     } else {
-        scales::brewer_pal(palette = palette)
+        # ColorBrewer palettes cap at brewer.pal.info$maxcolors; build the full
+        # set once, then interpolate past it.
+        max_n = RColorBrewer::brewer.pal.info[palette, "maxcolors"]
+        full = scales::brewer_pal(palette = palette)(max_n)
+        function(n) extend_colours(full, n)
     }
 }
 

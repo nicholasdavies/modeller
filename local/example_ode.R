@@ -20,7 +20,7 @@ init <- list(
     E = 0,
     I = 1,
     R = 0,
-    total_infection = 0
+    total_infections = 0
 )
 
 # Model parameters
@@ -28,13 +28,14 @@ params <- list(
     latent_period = 8,
     infectious_period = 7,
     R0 = 13,
+    amplitude = 0.8,
     time = 150
 )
 
 # Model equations
 equations <- function()
 {
-    R0 <- R0 * (1 + 0.8 * sin(t * 2 * pi / 50))
+    R0 <- R0 * (1 + amplitude * sin(t * 2 * pi / 50))
 
     infectious_rate <- 1 / latent_period
     rec_rate <- 1 / infectious_period
@@ -45,7 +46,7 @@ equations <- function()
     d(E) <-  beta * I/N * S - infectious_rate * E
     d(I) <-                   infectious_rate * E - rec_rate * I
     d(R) <-                                         rec_rate * I
-    d(total_infection) <- beta * I/N * S
+    d(total_infections) <- beta * I/N * S
 
     record(R0 = R0)
 }

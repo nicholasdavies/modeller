@@ -4,7 +4,7 @@
 \alias{show_model}
 \title{Launch interactive model explorer}
 \usage{
-show_model(model, data = NULL, max_display_rows = 5000)
+show_model(model, data = NULL, hide = NULL, max_display_rows = 5000)
 }
 \arguments{
 \item{model}{A model object created by \code{\link[=ode_model]{ode_model()}} or \code{\link[=ssa_model]{ssa_model()}}.}
@@ -12,6 +12,10 @@ show_model(model, data = NULL, max_display_rows = 5000)
 \item{data}{Optional data frame to overlay on the plot. Should contain a
 time column and one or more columns matching compartment or incidence
 names. Can also be loaded interactively via the Data tab.}
+
+\item{hide}{Optional character vector of compartment names to omit from the
+plot and from the initial conditions controls. Hidden compartments are
+still simulated using their default initial values.}
 
 \item{max_display_rows}{Maximum rows shown in the Table tab (default
 5000). Full data is always available via CSV export.}

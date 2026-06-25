@@ -9,6 +9,9 @@
 #' @param data Optional data frame to overlay on the plot. Should contain a
 #'   time column and one or more columns matching compartment or incidence
 #'   names. Can also be loaded interactively via the Data tab.
+#' @param hide Optional character vector of compartment names to omit from the
+#'   plot and from the initial conditions controls. Hidden compartments are
+#'   still simulated using their default initial values.
 #' @param max_display_rows Maximum rows shown in the Table tab (default
 #'   5000). Full data is always available via CSV export.
 #'
@@ -28,11 +31,12 @@
 #' if (interactive()) show_model(m)
 #'
 #' @export
-show_model = function(model, data = NULL, max_display_rows = 5000)
+show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
 {
     init = model$init
     params = model$params
     extra_elements = model$shiny$ui
+    hide = as.character(hide)
 
     # The interactive UI doesn't yet support vector-valued compartments or
     # vector-valued parameters. Bail out early with a clear message rather
@@ -50,6 +54,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
     init_defaults = list()
     for (n in names(init)) {
         if (startsWith(n, cumulative_prefix)) next
+        if (n %in% hide) next
         id = paste0("model_init_", n)
         init_defaults[[id]] = init[[n]]
         init_elements[[length(init_elements) + 1]] = inshiny::inline(n, "(0) = ",
@@ -233,6 +238,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             if (length(default) == 0) default = cols[1]
             shiny::selectInput("data_time_col", "Time column", choices = cols, selected = default[1])
         })
+        shiny::outputOptions(output, "data_time_col_ui", suspendWhenHidden = FALSE)
 
         output$data_preview = shiny::renderTable({
             shiny::req(imported_data())
@@ -258,7 +264,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
             debounced_inputs()
             shiny::isolate({
                 init_list = lapply(names(init), function(n) {
-                    if (startsWith(n, cumulative_prefix)) init[[n]] else input[[paste0("model_init_", n)]]
+                    if (startsWith(n, cumulative_prefix) || n %in% hide) init[[n]] else input[[paste0("model_init_", n)]]
                 })
                 names(init_list) = names(init)
 
@@ -300,7 +306,7 @@ show_model = function(model, data = NULL, max_display_rows = 5000)
         output$compartment_toggles = shiny::renderUI({
             d = current_data()
             shiny::req(d)
-            series = setdiff(names(d), "t")
+            series = setdiff(names(d), c("t", hide))
             prev = shiny::isolate(input$visible_series)
             selected = if (is.null(prev)) series else intersect(prev, series)
             shiny::checkboxGroupInput("visible_series", NULL,
