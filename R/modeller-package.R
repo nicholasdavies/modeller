@@ -372,6 +372,27 @@ compute_recordings = function(model, params, data)
     result
 }
 
+# Give every unnamed argument of a record() call a name from the deparsed argument.
+name_record_args = function(expr)
+{
+    elixir::expr_apply(expr, function(x) {
+        if (is.call(x) && is.symbol(x[[1]]) &&
+            identical(x[[1]], quote(record)) && length(x) > 1L) {
+            args = as.list(x)[-1L]
+            nms = names(args)
+            if (is.null(nms)) nms = rep("", length(args))
+            for (i in seq_along(args)) {
+                if (is.na(nms[i]) || nms[i] == "") {
+                    nms[i] = paste(deparse(args[[i]]), collapse = " ")
+                }
+            }
+            x = as.call(c(list(quote(record)), args))
+            names(x) = c("", nms)
+        }
+        x
+    }, into = TRUE)
+}
+
 # Build recorder function from equations function.
 # The first statement of body(equations) is the no-op `record` assignment,
 # which is swapped for one that captures values into a local `.rlist`. The

@@ -76,6 +76,9 @@ difference_model = function(init, params, equations, options = list())
         { .nlist[[as.character(quote(.A))]] <<- ..B })
     check_helpers(eq, "difference")
 
+    # Name unnamed record() arguments.
+    eq = name_record_args(eq)
+
     schema = vapply(init, length, integer(1))
 
     # Pre-compute the unpack as a literal list expression with the state

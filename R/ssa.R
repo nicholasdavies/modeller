@@ -140,6 +140,9 @@ ssa_model = function(init, params, equations, options = list())
     }
     check_helpers(eq, "SSA")
 
+    # Name unnamed record() arguments.
+    eq = name_record_args(eq)
+
     # Put equations function into correct form
     formals(equations) = alist(.state =, .params =, t =)
     unpack_expr = build_unpack_expr(schema)

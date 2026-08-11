@@ -75,6 +75,9 @@ ode_model = function(init, params, equations, options = list())
         { .dlist[[as.character(quote(.A))]] <<- ..B })
     check_helpers(eq, "ODE")
 
+    # Name unnamed record() arguments.
+    eq = name_record_args(eq)
+
     # Schema for packing/unpacking vector compartments. Scalar compartments
     # (length 1) are unaffected; vector ones flatten into Name.1..Name.K.
     schema = vapply(init, length, integer(1))
