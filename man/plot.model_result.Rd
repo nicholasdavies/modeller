@@ -16,6 +16,8 @@
   xlab = "Time",
   ylab = NULL,
   compare = NULL,
+  xlim = NULL,
+  ylim = NULL,
   ...
 )
 }
@@ -47,6 +49,12 @@ or \code{"none"}.}
 
 \item{compare}{Optional second \code{model_result} to draw underneath in
 thinner, fainter lines for visual comparison.}
+
+\item{xlim}{Optional length-2 numeric \code{c(min, max)} limiting the x-axis to
+that range. \code{NULL} (the default) selects the range automatically.}
+
+\item{ylim}{Optional length-2 numeric \code{c(min, max)} limiting the y-axis, as
+for \code{xlim}. \code{NULL} (the default) selects the range automatically.}
 
 \item{...}{Ignored.}
 }

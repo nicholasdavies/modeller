@@ -111,6 +111,10 @@ grey_linetypes = function(n) {
 #' @param ylab Y-axis label. `NULL` (default) for no label.
 #' @param compare Optional second `model_result` to draw underneath in
 #'   thinner, fainter lines for visual comparison.
+#' @param xlim Optional length-2 numeric `c(min, max)` limiting the x-axis to
+#'   that range. `NULL` (the default) selects the range automatically.
+#' @param ylim Optional length-2 numeric `c(min, max)` limiting the y-axis, as
+#'   for `xlim`. `NULL` (the default) selects the range automatically.
 #' @param ... Ignored.
 #'
 #' @return The [ggplot2::ggplot] object (returned by `print()`).
@@ -133,7 +137,8 @@ grey_linetypes = function(n) {
 #' @export
 plot.model_result = function(x, series = NULL, overlay = NULL,
     palette = "Dark2", legend = "right", time_col = "t", vline = NULL,
-    title = NULL, xlab = "Time", ylab = NULL, compare = NULL, ...)
+    title = NULL, xlab = "Time", ylab = NULL, compare = NULL,
+    xlim = NULL, ylim = NULL, ...)
 {
     # Determine all series names (used for consistent factor levels / colours)
     all_names = setdiff(names(x), "t")
@@ -224,6 +229,12 @@ plot.model_result = function(x, series = NULL, overlay = NULL,
     p = p + ggplot2::scale_colour_manual(values = palette_fn(n_colours))
     if (use_linetypes) {
         p = p + ggplot2::scale_linetype_manual(values = grey_linetypes(n_colours))
+    }
+
+    # Zoom: a viewport crop that does not re-fit the other axis, so an unset
+    # axis keeps its full range (NULL = auto for that axis).
+    if (!is.null(xlim) || !is.null(ylim)) {
+        p = p + ggplot2::coord_cartesian(xlim = xlim, ylim = ylim)
     }
 
     p

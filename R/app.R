@@ -107,6 +107,25 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
                 }
             });
         ")),
+        # Distinguish a real click from a drag (brush) on the plots. Shiny fires
+        # the plot click on mousedown, so a brush-drag also emits a click at its
+        # origin. On mouseup we report whether the pointer moved, so the server
+        # can ignore clicks that were really the start of a drag.
+        shiny::tags$script(shiny::HTML("
+            (function() {
+                var sx = null, sy = null, id = null;
+                $(document).on('mousedown', '#main_plot, #recorded_plot', function(e) {
+                    sx = e.pageX; sy = e.pageY; id = this.id;
+                });
+                $(document).on('mouseup', function(e) {
+                    if (id === null) return;
+                    var drag = Math.abs(e.pageX - sx) > 3 || Math.abs(e.pageY - sy) > 3;
+                    Shiny.setInputValue(id + '_mouseup', {drag: drag, r: Math.random()},
+                        {priority: 'event'});
+                    sx = null; sy = null; id = null;
+                });
+            })();
+        ")),
         bslib::navset_underline(
             bslib::nav_panel("Plot",
                 shiny::div(style = "display: flex; justify-content: flex-end; margin-bottom: 5px;",
@@ -114,9 +133,10 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
                         inshiny::inline_switch("toggle_compare", value = FALSE,
                             on = "On", off = "Off",
                             meaning = "Save current model output to compare against future runs"))),
-                shiny::plotOutput("main_plot", click = "main_plot_click"),
+                shiny::uiOutput("main_plot_container"),
                 shiny::uiOutput("recorded_plot_container"),
                 shiny::uiOutput("message_box"),
+                shiny::uiOutput("zoom_box"),
                 shiny::uiOutput("coords_box"),
                 shiny::h5("Plot options", class = "mt-3"),
                 shiny::uiOutput("compartment_toggles"),
@@ -162,6 +182,10 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
 
     server = function(input, output) {
         selected_time = shiny::reactiveVal()
+        zoom_region = shiny::reactiveVal(NULL)   # last brushed region, for the dialog
+        zoom_x = shiny::reactiveVal(NULL)        # shared x-range (both plots)
+        zoom_y_main = shiny::reactiveVal(NULL)   # main plot y-range
+        zoom_y_rec = shiny::reactiveVal(NULL)    # recorded plot y-range
         model_data = shiny::reactiveVal()
         imported_data = shiny::reactiveVal(data)
         last_plot = shiny::reactiveVal()
@@ -177,22 +201,56 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
             }
         }, ignoreInit = TRUE)
 
-        # Click handling: snap to nearest point in the data
-        shiny::observeEvent(input$main_plot_click, {
-            d = model_data()
-            shiny::req(d)
-            x = input$main_plot_click$x
-            idx = which.min(abs(d$t - x))
-            selected_time(d$t[idx])
-        })
+        # Mouse handling. Shiny fires the plot click on mousedown, so a
+        # brush-drag also produces a click at its origin. Everything is resolved
+        # at mouseup instead (see the drag detector in the UI): if the pointer
+        # moved it was a brush (a zoom) — record the region and clear the
+        # rectangle; otherwise it was a genuine click — snap the selected time to
+        # the nearest data point. Clearing on mouseup (not on the brush input,
+        # which is throttled and can land mid-drag) keeps the box visible until
+        # the mouse is released.
+        setup_plot_mouse = function(plot_id) {
+            click_id = paste0(plot_id, "_click")
+            brush_id = paste0(plot_id, "_brush")
+            up_id    = paste0(plot_id, "_mouseup")
+            pending_x = shiny::reactiveVal(NULL)
 
-        shiny::observeEvent(input$recorded_plot_click, {
-            d = model_data()
-            shiny::req(d)
-            x = input$recorded_plot_click$x
-            idx = which.min(abs(d$t - x))
-            selected_time(d$t[idx])
-        })
+            shiny::observeEvent(input[[click_id]], {
+                pending_x(input[[click_id]]$x)
+            })
+
+            shiny::observeEvent(input[[up_id]], {
+                if (isTRUE(input[[up_id]]$drag)) {
+                    # A drag (brush = zoom). Zoom x on both plots (shared) but y
+                    # only on the plot that was brushed, widening to the rounded
+                    # bounds shown in the dialog. Then clear the brush rectangle.
+                    b = shiny::isolate(input[[brush_id]])
+                    if (!is.null(b)) {
+                        zoom_x(c(signif_floor(b$xmin), signif_ceiling(b$xmax)))
+                        yr = c(signif_floor(b$ymin), signif_ceiling(b$ymax))
+                        if (identical(plot_id, "main_plot")) {
+                            zoom_y_main(yr)
+                        } else {
+                            zoom_y_rec(yr)
+                        }
+                        zoom_region(b)
+                    }
+                    shiny::getDefaultReactiveDomain()$resetBrush(brush_id)
+                    pending_x(NULL)
+                    return()
+                }
+                # A genuine click: snap to the nearest data point.
+                x = pending_x()
+                shiny::req(x)
+                d = model_data()
+                shiny::req(d)
+                idx = which.min(abs(d$t - x))
+                selected_time(d$t[idx])
+                pending_x(NULL)
+            })
+        }
+        setup_plot_mouse("main_plot")
+        setup_plot_mouse("recorded_plot")
 
         # Arrow keys step to next/previous data point
         shiny::observeEvent(input$arrow_key, {
@@ -211,6 +269,14 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
 
         shiny::observeEvent(input$clear_coords, {
             selected_time(NULL)
+        })
+
+        # Closing the zoom dialog resets the zoom on both axes of both plots.
+        shiny::observeEvent(input$clear_zoom, {
+            zoom_region(NULL)
+            zoom_x(NULL)
+            zoom_y_main(NULL)
+            zoom_y_rec(NULL)
         })
 
         shiny::observeEvent(input$clear_messages, {
@@ -319,28 +385,35 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
         plot_pair = shiny::reactive({
             d = current_data()
             shiny::req(d)
-            shiny::req(input$visible_series)
 
             imported = imported_data()
             time_col = if (!is.null(imported)) input$data_time_col %||% "t" else "t"
             if (!is.null(imported)) shiny::req(input$data_time_col)
 
             blank_to_null = function(x) if (is.null(x) || !nzchar(x)) NULL else x
+            visible = input$visible_series %||% character(0)
             recorded = identify_recorded(d)
-            visible_recorded = intersect(input$visible_series, recorded)
-            visible_main = setdiff(input$visible_series, recorded)
+            visible_recorded = intersect(visible, recorded)
+            visible_main = setdiff(visible, recorded)
 
-            p_main = plot(d,
-                series = visible_main,
-                overlay = imported,
-                palette = input$colour_palette %||% "Dark2",
-                legend = input$legend_position %||% "right",
-                time_col = time_col,
-                vline = selected_time(),
-                title = blank_to_null(input$plot_title),
-                xlab = blank_to_null(input$plot_xlab),
-                ylab = blank_to_null(input$plot_ylab),
-                compare = compare_data())
+            # The main panel is only built when it has series to show; with none
+            # selected it is NULL and its output disappears (like the recorded
+            # panel), rather than lingering as an empty set of axes.
+            p_main = if (length(visible_main) > 0) {
+                plot(d,
+                    series = visible_main,
+                    overlay = imported,
+                    palette = input$colour_palette %||% "Dark2",
+                    legend = input$legend_position %||% "right",
+                    time_col = time_col,
+                    vline = selected_time(),
+                    title = blank_to_null(input$plot_title),
+                    xlab = blank_to_null(input$plot_xlab),
+                    ylab = blank_to_null(input$plot_ylab),
+                    compare = compare_data(),
+                    xlim = zoom_x(),
+                    ylim = zoom_y_main())
+            } else NULL
 
             if (length(visible_recorded) == 0) {
                 return(list(main = p_main, rec = NULL))
@@ -376,16 +449,41 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
                 vline = selected_time(),
                 xlab = blank_to_null(input$plot_xlab),
                 ylab = paste(visible_recorded, collapse = ", "),
-                compare = cmp_rec)
+                compare = cmp_rec,
+                xlim = zoom_x(),
+                ylim = zoom_y_rec())
 
+            # Align left margins only when both panels are shown.
+            if (is.null(p_main)) {
+                return(list(main = NULL, rec = p_rec))
+            }
             aligned = align_margins(list(p_main, p_rec), x = TRUE, y = FALSE)
             list(main = aligned[[1]], rec = aligned[[2]])
         })
 
+        # Keep the data available for clicks/coords and remember the plot to
+        # export, independently of whether the main panel is currently shown.
+        shiny::observe({
+            model_data(current_data())
+        })
+        shiny::observe({
+            pp = plot_pair()
+            last_plot(pp$main %||% pp$rec)
+        })
+
+        # Main plot — only shown when at least one non-recorded series is
+        # selected; otherwise its output disappears.
+        output$main_plot_container = shiny::renderUI({
+            pp = plot_pair()
+            if (is.null(pp$main)) return(NULL)
+            shiny::plotOutput("main_plot", click = "main_plot_click",
+                brush = shiny::brushOpts("main_plot_brush", resetOnNew = TRUE,
+                    delay = 100, delayType = "throttle"))
+        })
+
         output$main_plot = shiny::renderPlot({
             pp = plot_pair()
-            model_data(current_data())
-            last_plot(pp$main)
+            shiny::req(pp$main)
             pp$main
         })
 
@@ -394,8 +492,11 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
         output$recorded_plot_container = shiny::renderUI({
             pp = plot_pair()
             if (is.null(pp$rec)) return(NULL)
+            height = if (is.null(pp$main)) "400px" else "200px" # Full height when alone
             shiny::plotOutput("recorded_plot",
-                click = "recorded_plot_click", height = "200px")
+                click = "recorded_plot_click", height = height,
+                brush = shiny::brushOpts("recorded_plot_brush", resetOnNew = TRUE,
+                    delay = 100, delayType = "throttle"))
         })
 
         output$recorded_plot = shiny::renderPlot({
@@ -480,6 +581,27 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
 
 
         # Coordinates box: shows compartment values at selected time
+        # Zoom dialog: shows the brushed region, widened outward to 3 significant
+        # figures (lower bounds rounded down, upper bounds rounded up). Sits
+        # above the click readout. Closing it resets the zoom.
+        output$zoom_box = shiny::renderUI({
+            z = zoom_region()
+            shiny::req(z)
+
+            fmt = function(v) format(signif(v, 3), trim = TRUE, scientific = FALSE)
+            zoom_text = sprintf(
+                "Zoomed in to:\nx = [%s, %s], y = [%s, %s]",
+                fmt(signif_floor(z$xmin)), fmt(signif_ceiling(z$xmax)),
+                fmt(signif_floor(z$ymin)), fmt(signif_ceiling(z$ymax)))
+
+            shiny::div(class = "alert alert-info alert-dismissible mb-2 mt-2 py-2",
+                style = "font-size: 0.9em; max-height: 200px; overflow-y: auto;",
+                shiny::tags$span(style = "font-family: monospace; white-space: pre-wrap;", zoom_text),
+                shiny::tags$button(type = "button", class = "btn-close",
+                    onclick = "Shiny.setInputValue('clear_zoom', Math.random(), {priority: 'event'});")
+            )
+        })
+
         output$coords_box = shiny::renderUI({
             t_sel = selected_time()
             shiny::req(t_sel)
@@ -506,3 +628,14 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
     if (interactive()) print(app)
     invisible(app)
 }
+
+# Round x to `digits` significant figures in a given direction (floor = down
+# toward -Inf, ceiling = up toward +Inf). Used to widen a zoom range outward to
+# tidy bounds: lower edges rounded down, upper edges rounded up.
+signif_dir = function(x, digits, dir) {
+    if (!is.finite(x) || x == 0) return(x)
+    mag = 10^(floor(log10(abs(x))) - (digits - 1))
+    dir(x / mag) * mag
+}
+signif_floor = function(x, digits = 3) signif_dir(x, digits, floor)
+signif_ceiling = function(x, digits = 3) signif_dir(x, digits, ceiling)
