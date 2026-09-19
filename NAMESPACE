@@ -13,8 +13,12 @@ export(run_model)
 export(show_model)
 export(sir_model)
 export(ssa_model)
-importFrom(stats,optim)
-importFrom(stats,plogis)
-importFrom(stats,qlogis)
-importFrom(utils,head)
-importFrom(utils,modifyList)
+importFrom(stats,
+  optim,
+  plogis,
+  qlogis
+)
+importFrom(utils,
+  head,
+  modifyList
+)

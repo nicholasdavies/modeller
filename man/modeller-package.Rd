@@ -38,5 +38,10 @@ Useful links:
 \author{
 \strong{Maintainer}: Nick Davies \email{nicholas.davies@lshtm.ac.uk}
 
+Authors:
+\itemize{
+  \item Nick Davies \email{nicholas.davies@lshtm.ac.uk}
+}
+
 }
 \keyword{internal}
