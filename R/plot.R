@@ -96,7 +96,8 @@ grey_linetypes = function(n) {
 #'
 #' @param x A `model_result` object returned by [run_model()].
 #' @param series Character vector of series names to display. `NULL` (the
-#'   default) shows all compartments and incidence series.
+#'   default) shows all series except cumulative `total_` columns, which are
+#'   only shown when named here.
 #' @param overlay Optional data frame of observed data to overlay as points.
 #'   Should contain a time column and one or more columns matching
 #'   compartment or incidence names.
@@ -140,8 +141,12 @@ plot.model_result = function(x, series = NULL, overlay = NULL,
     title = NULL, xlab = "Time", ylab = NULL, compare = NULL,
     xlim = NULL, ylim = NULL, ...)
 {
-    # Determine all series names (used for consistent factor levels / colours)
+    # Determine all series names (used for consistent factor levels / colours).
+    # Cumulative total_ columns are only included if named in `series`, and
+    # go last so they don't shift the colours of other series.
     all_names = setdiff(names(x), "t")
+    all_names = c(all_names[!is_total(all_names)],
+        intersect(all_names[is_total(all_names)], series))
     visible = if (!is.null(series)) intersect(all_names, series) else all_names
 
     # Pivot to long format

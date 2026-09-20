@@ -8,7 +8,11 @@ ode_model(init, params, equations, options = list())
 }
 \arguments{
 \item{init}{Named list of initial compartment values (e.g.
-\code{list(S = 999, I = 1, R = 0)}).}
+\code{list(S = 999, I = 1, R = 0)}), or a function with no arguments that
+returns such a list. Inside the function, parameter names (from
+\code{params}) and \code{t} (the start time) can be used as ordinary variables, so
+initial conditions can depend on parameters. The function is re-evaluated
+whenever the model is run with different parameters.}
 
 \item{params}{Named list of parameter values. Must include \code{time}, which
 controls the simulation time span and can be specified as:
@@ -24,8 +28,9 @@ Inside the equations function, \code{time} is a three-element numeric vector
 
 \item{equations}{A function with no arguments. Use \code{d(X) = ...} to set
 the derivative (rate of change) of each compartment \code{X}. Compartments
-whose names start with \code{total_} are treated as cumulative counters; the
-corresponding incidence is computed automatically when plotting.}
+whose names start with \code{total_} are treated as cumulative counters: for
+each \code{total_X}, results also contain the incidence \code{X} (per unit time),
+and \code{total_X} is only plotted if requested.}
 
 \item{options}{Named list of solver options. For ODE models the only
 option is \code{method}, the integration method passed to \code{\link[deSolve:ode]{deSolve::ode()}}.
@@ -64,5 +69,17 @@ m = ode_model(
 m
 result = run_model(m)
 plot(result)
+
+# Initial conditions that depend on parameters
+m2 = ode_model(
+    init = function() list(S = N - I0, I = I0, R = 0),
+    params = list(N = 1000, I0 = 5, beta = 0.3, gamma = 0.1, time = 100),
+    equations = function() {
+        d(S) = -beta * I / N * S
+        d(I) =  beta * I / N * S - gamma * I
+        d(R) =  gamma * I
+    }
+)
+result = run_model(m2, params = list(I0 = 50))
 
 }

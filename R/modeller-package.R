@@ -47,8 +47,15 @@ utils::globalVariables(c(
 #'
 #' @param model A model object created by [ode_model()], [ssa_model()], or
 #'   [difference_model()].
-#' @param init Named list of initial conditions to override defaults.
-#' @param params Named list of parameters to override defaults.
+#' @param init Named list of initial conditions to override defaults, or a
+#'   function with no arguments returning such a list. As for the `init`
+#'   argument of the model constructors, a function can use parameter names
+#'   and `t` (the start time) as plain variables. Only the compartments given
+#'   are overridden; each must be a compartment of the model, with the same
+#'   length.
+#' @param params Named list of parameters to override defaults. If the model's
+#'   initial conditions were given as a function, it is re-evaluated with these
+#'   parameters.
 #' @param options Named list of solver options to override defaults.
 #'
 #'   For ODE models (default: `list(method = "lsode")`):
@@ -69,8 +76,10 @@ utils::globalVariables(c(
 #'   For difference equation models: no solver options are available.
 #' @param ... Ignored.
 #'
-#' @return A `model_result` data frame with a `t` column and one column per
-#'   compartment. Has attributes `dt` (time step; 0 for SSA) and `geom`
+#' @return A `model_result` data frame with a `t` column, one column per
+#'   compartment, an incidence column `X` for each cumulative `total_X`
+#'   compartment, and a column for each quantity passed to `record()`. Has
+#'   attributes `dt` (time step; 0 for SSA) and `geom`
 #'   (`"line"` for ODE, `"step"` for SSA and difference equation models).
 #'
 #' @examples
@@ -110,6 +119,7 @@ print.modeller = function(x, ...)
     cat(type, "model\n")
     cat("  Compartments: ",
         paste(mapply(fmt_compartment, names(x$init), x$init), collapse = ", "),
+        if (!is.null(x$init_fn)) " (from init function)",
         "\n", sep = "")
     cat("  Parameters:   ",
         paste(mapply(fmt_param, param_names, x$params[param_names]), collapse = ", "),
@@ -146,14 +156,107 @@ check_helpers = function(eq, model_type)
     }
 }
 
-# Validate inputs common to all model constructors
+# Validate inputs common to all model constructors. `init` is either a named
+# list or a no-argument function returning one; a function is evaluated at the
+# default parameters to fix the model's compartments. Returns a list with the
+# evaluated `init`, the compiled init function (or NULL), and `params`.
 validate_inputs = function(init, params, equations)
 {
-    # Basic structure of arguments
-    if (!is.list(init) || is.null(names(init)) || any(names(init) == ""))
-        stop("`init` must be a named list", call. = FALSE)
-    if (!all(vapply(init, is.numeric, logical(1))))
+    params = validate_params(params, equations)
+    init_fn = build_init_fn(init)
+    if (!is.null(init_fn)) init = init_fn(params)
+    check_init_list(init)
+
+    reserved = c("t", "dt", "time")
+    bad_init = names(init) %in% reserved | startsWith(names(init), ".")
+    if (any(bad_init)) {
+        stop("`init` names cannot be `t`, `dt`, `time`, or start with `.`: ",
+            paste(names(init)[bad_init], collapse = ", "), call. = FALSE)
+    }
+    overlap = intersect(names(init), names(params))
+    if (length(overlap) > 0) {
+        stop("`init` and `params` cannot share names: ",
+            paste(overlap, collapse = ", "), call. = FALSE)
+    }
+
+    list(init = init, init_fn = init_fn, params = params)
+}
+
+# Check that `x` is a named list of numeric initial values. If `schema` is
+# given, also check that every name is a known compartment of the right length.
+check_init_list = function(x, schema = NULL)
+{
+    if (!is.list(x) || is.null(names(x)) || any(names(x) == ""))
+        stop("`init` must be a named list, or a function with no arguments ",
+            "returning a named list", call. = FALSE)
+    if (!all(vapply(x, is.numeric, logical(1))))
         stop("all elements of `init` must be numeric", call. = FALSE)
+    if (!is.null(schema)) {
+        unknown = setdiff(names(x), names(schema))
+        if (length(unknown) > 0)
+            stop("`init` refers to unknown compartment(s): ",
+                paste(unknown, collapse = ", "), call. = FALSE)
+        bad_len = names(x)[lengths(x) != schema[names(x)]]
+        if (length(bad_len) > 0)
+            stop("`init` has the wrong length for compartment(s): ",
+                paste(bad_len, collapse = ", "), call. = FALSE)
+    }
+}
+
+# Compile an init function into function(.params) that evaluates its body
+# with the parameters and `t` (the start time) available as plain names.
+# Returns NULL if `init` is not a function.
+build_init_fn = function(init)
+{
+    if (!is.function(init)) return (NULL)
+    if (length(formals(init)) > 0)
+        stop("`init` must be a named list, or a function with no arguments ",
+            "returning a named list", call. = FALSE)
+    init_body = body(init)
+    init_env = environment(init)
+    function(.params) {
+        env = list2env(c(list(t = .params$time[1]), .params), parent = init_env)
+        eval(init_body, env)
+    }
+}
+
+# Resolve the initial state and parameters for a run. Parameter overrides are
+# applied first so that init functions see them. The model's own initial state
+# (evaluated from its init function, if it has one) is then overridden by
+# `init`, which may be a list or an init function covering some compartments.
+resolve_inputs = function(model, init, params)
+{
+    params = modifyList(model$params, params %||% list())
+    params = validate_params(params, ".BYPASS")
+    schema = vapply(model$init, length, integer(1))
+    overlap = intersect(names(schema), names(params))
+    if (length(overlap) > 0) {
+        stop("`init` and `params` cannot share names: ",
+            paste(overlap, collapse = ", "), call. = FALSE)
+    }
+
+    base = model$init
+    if (!is.null(model$init_fn)) {
+        base = model$init_fn(params)
+        check_init_list(base, schema)
+        missing = setdiff(names(schema), names(base))
+        if (length(missing) > 0)
+            stop("model's `init` function did not return compartment(s): ",
+                paste(missing, collapse = ", "), call. = FALSE)
+        base = base[names(schema)]
+    }
+
+    override = init %||% list()
+    init_fn = build_init_fn(override)
+    if (!is.null(init_fn)) override = init_fn(params)
+    if (length(override) > 0) check_init_list(override, schema)
+
+    list(init = modifyList(base, override), params = params)
+}
+
+# Validate the params list and normalise `params$time`.
+validate_params = function(params, equations)
+{
     if (!is.list(params) || is.null(names(params)) || any(names(params) == ""))
         stop("`params` must be a named list", call. = FALSE)
     if (!all(vapply(params, is.numeric, logical(1))))
@@ -167,23 +270,10 @@ validate_inputs = function(init, params, equations)
 
     # Reserved names: `t` is the simulation time, `dt` is the difference
     # equation step, names starting with `.` are internal.
-    reserved = c("t", "dt")
-    is_internal = function(n) startsWith(n, ".")
-
-    bad_init = names(init) %in% c(reserved, "time") | vapply(names(init), is_internal, logical(1))
-    if (any(bad_init)) {
-        stop("`init` names cannot be `t`, `dt`, `time`, or start with `.`: ",
-            paste(names(init)[bad_init], collapse = ", "), call. = FALSE)
-    }
-    bad_params = names(params) %in% reserved | vapply(names(params), is_internal, logical(1))
+    bad_params = names(params) %in% c("t", "dt") | startsWith(names(params), ".")
     if (any(bad_params)) {
         stop("`params` names cannot be `t`, `dt`, or start with `.`: ",
             paste(names(params)[bad_params], collapse = ", "), call. = FALSE)
-    }
-    overlap = intersect(names(init), names(params))
-    if (length(overlap) > 0) {
-        stop("`init` and `params` cannot share names: ",
-            paste(overlap, collapse = ", "), call. = FALSE)
     }
 
     # Times
@@ -263,9 +353,8 @@ unpack_state = function(flat, schema)
 # Prefix for cumulative counter compartments that get converted to incidence.
 cumulative_prefix = "total_"
 
-# Convert cumulative total_ columns to incidence rates. Removes total_
-# columns and adds corresponding incidence columns (without the prefix).
-# For SSA results (irregular time points), computes incidence on a regular
+# Add an incidence column (without the prefix) for each cumulative total_
+# column. The total_ columns are kept. For SSA results (irregular time points), computes incidence on a regular
 # grid and merges back, using last observation carried forward for the
 # original compartment columns at grid time points.
 compute_incidence = function(data)
@@ -319,13 +408,11 @@ compute_incidence = function(data)
     data
 }
 
-# Remove totals columns from data
-remove_totals = function(data)
+# Which of `nms` are cumulative total_ columns. These are kept in results but
+# not plotted unless requested.
+is_total = function(nms)
 {
-    prefix = paste0("^", cumulative_prefix)
-    total_cols = grep(prefix, names(data), value = TRUE)
-    data[total_cols] = NULL
-    return (data)
+    startsWith(nms, cumulative_prefix)
 }
 
 # Compute "record" statements for each row of the data.

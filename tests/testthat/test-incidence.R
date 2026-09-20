@@ -10,11 +10,51 @@ sir_eq = function() {
     d(total_infection) = lambda * S
 }
 
-test_that("total_X column is replaced by incidence column X", {
+test_that("results contain both total_X and its incidence column X", {
     m = ode_model(sir_init, sir_params, sir_eq)
     r = run_model(m)
-    expect_false("total_infection" %in% names(r))
-    expect_true("infection" %in% names(r))
+    expect_named(r, c("t", "S", "I", "R", "total_infection", "infection"))
+    expect_equal(r$infection, c(r$total_infection[1], diff(r$total_infection)))
+})
+
+test_that("difference and SSA results also keep total_X columns", {
+    diff_eq = function() {
+        lambda = beta * I / 1000
+        new(S) = S - lambda * S
+        new(I) = I + lambda * S - gamma * I
+        new(R) = R + gamma * I
+        new(total_infection) = total_infection + lambda * S
+    }
+    r = run_model(difference_model(sir_init, sir_params, diff_eq))
+    expect_true(all(c("total_infection", "infection") %in% names(r)))
+
+    ssa_eq = function() {
+        tx(S -> I + total_infection) = beta * I / 1000 * S
+        tx(I -> R) = gamma * I
+    }
+    r = run_model(ssa_model(sir_init, sir_params, ssa_eq),
+        options = list(seed = 1))
+    expect_true(all(c("total_infection", "infection") %in% names(r)))
+    expect_true(all(diff(r$total_infection) >= 0))
+    expect_equal(r$total_infection[nrow(r)], r$I[nrow(r)] + r$R[nrow(r)] - 1)
+})
+
+test_that("plot omits total_X columns unless requested in series", {
+    m = ode_model(sir_init, sir_params, sir_eq)
+    r = run_model(m)
+    plotted = function(p) p$layers[[2]]$data$name
+
+    p = plot(r)
+    expect_setequal(unique(as.character(plotted(p))), c("S", "I", "R", "infection"))
+    expect_equal(levels(plotted(p)), c("S", "I", "R", "infection"))
+
+    p = plot(r, series = c("I", "total_infection"))
+    expect_setequal(unique(as.character(plotted(p))), c("I", "total_infection"))
+    # Requested totals go last, so other series keep their colours
+    expect_equal(levels(plotted(p)), c("S", "I", "R", "infection", "total_infection"))
+
+    p = plot(r, series = "S", vline = 10)
+    expect_s3_class(p, "ggplot")
 })
 
 test_that("incidence integrates back to the cumulative total", {

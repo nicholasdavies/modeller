@@ -5,6 +5,11 @@
 #' live-updating plots and data tables. Observed data can be overlaid for
 #' visual comparison.
 #'
+#' If the model's initial conditions were given as a function, they are
+#' shown read-only, recomputed from the current parameters on each run.
+#' Cumulative `total_` compartments are shown in the Table tab but are not
+#' plotted; their incidence series are plotted instead.
+#'
 #' @param model A model object created by [ode_model()] or [ssa_model()].
 #' @param data Optional data frame to overlay on the plot. Should contain a
 #'   time column and one or more columns matching compartment or incidence
@@ -50,16 +55,22 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
 
     # Create Shiny app
 
+    # Initial conditions are editable inputs, unless the model computes them
+    # with an init function, in which case they are shown read-only.
+    shown_init = names(init)[!startsWith(names(init), cumulative_prefix) &
+        !names(init) %in% hide]
     init_elements = list(shiny::tags$p(shiny::tags$strong("Initial conditions")))
     init_defaults = list()
-    for (n in names(init)) {
-        if (startsWith(n, cumulative_prefix)) next
-        if (n %in% hide) next
-        id = paste0("model_init_", n)
-        init_defaults[[id]] = init[[n]]
-        init_elements[[length(init_elements) + 1]] = inshiny::inline(n, "(0) = ",
-            inshiny::inline_number(id, value = init[[n]],
-                placeholder = init[[n]], min = 0, arrows = FALSE))
+    if (is.null(model$init_fn)) {
+        for (n in shown_init) {
+            id = paste0("model_init_", n)
+            init_defaults[[id]] = init[[n]]
+            init_elements[[length(init_elements) + 1]] = inshiny::inline(n, "(0) = ",
+                inshiny::inline_number(id, value = init[[n]],
+                    placeholder = init[[n]], min = 0, arrows = FALSE))
+        }
+    } else {
+        init_elements[[2]] = shiny::uiOutput("init_display")
     }
 
     param_elements = list(shiny::tags$p(shiny::tags$strong("Parameters")))
@@ -69,7 +80,7 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
         param_defaults[[id]] = params[[n]]
         param_elements[[length(param_elements) + 1]] = inshiny::inline(n, " = ",
             inshiny::inline_number(id, value = params[[n]],
-                placeholder = init[[n]], min = 0, arrows = FALSE))
+                placeholder = params[[n]], min = 0, arrows = FALSE))
     }
 
     # Reset button: clears any user changes to inputs above (init, params,
@@ -329,10 +340,14 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
         current_data = shiny::reactive({
             debounced_inputs()
             shiny::isolate({
-                init_list = lapply(names(init), function(n) {
-                    if (startsWith(n, cumulative_prefix) || n %in% hide) init[[n]] else input[[paste0("model_init_", n)]]
-                })
-                names(init_list) = names(init)
+                # With an init function, run_model computes the initial state.
+                init_list = NULL
+                if (is.null(model$init_fn)) {
+                    init_list = lapply(names(init), function(n) {
+                        if (startsWith(n, cumulative_prefix) || n %in% hide) init[[n]] else input[[paste0("model_init_", n)]]
+                    })
+                    names(init_list) = names(init)
+                }
 
                 params_list = lapply(names(params), function(n) input[[paste0("model_param_", n)]])
                 names(params_list) = names(params)
@@ -358,21 +373,38 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
             })
         })
 
+        # Read-only initial conditions for models with an init function, taken
+        # from the first row of the current run. The rows share one wrapper div
+        # so the sidebar's flex gap does not separate them.
+        output$init_display = shiny::renderUI({
+            d = current_data()
+            rows = lapply(shown_init, function(n) {
+                value = if (is.null(d)) "—" else format(d[[n]][1])
+                shiny::div(class = "mb-1", paste0(n, "(0) = ", value))
+            })
+            shiny::div(class = "text-muted",
+                shiny::div(class = "fst-italic small mb-1",
+                    "Computed from parameters"),
+                rows)
+        })
+
         # Identify columns produced by record() — present in data but not in
-        # the model's compartments or incidence (renamed total_) columns.
+        # the model's compartments (including total_ ones) or incidence columns.
         identify_recorded = function(d) {
             init_names = names(model$init)
-            total_names = grep("^total_", init_names, value = TRUE)
-            expected = c("t", setdiff(init_names, total_names),
-                sub("^total_", "", total_names))
+            total_names = init_names[is_total(init_names)]
+            expected = c("t", init_names,
+                substring(total_names, nchar(cumulative_prefix) + 1))
             setdiff(names(d), expected)
         }
 
-        # Render compartment toggle checkboxes
+        # Render compartment toggle checkboxes. Cumulative total_ columns
+        # appear in the table but cannot be plotted.
         output$compartment_toggles = shiny::renderUI({
             d = current_data()
             shiny::req(d)
             series = setdiff(names(d), c("t", hide))
+            series = series[!is_total(series)]
             prev = shiny::isolate(input$visible_series)
             selected = if (is.null(prev)) series else intersect(prev, series)
             shiny::checkboxGroupInput("visible_series", NULL,
@@ -437,8 +469,9 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
             } else NULL
 
             # Continue palette after the colours the main plot uses
-            n_main = length(setdiff(names(d), c("t", recorded)))
-            n_total = n_main + length(recorded)
+            main_names = setdiff(names(d), c("t", recorded))
+            n_main = sum(!is_total(main_names))
+            n_total = n_main + sum(!is_total(recorded))
             base_fn = resolve_palette(input$colour_palette %||% "Dark2")
             offset_palette = function(n) base_fn(n_total)[(n_main + 1):(n_main + n)]
 
@@ -611,7 +644,7 @@ show_model = function(model, data = NULL, hide = NULL, max_display_rows = 5000)
             row = d[d$t == t_sel, , drop = FALSE]
             if (nrow(row) == 0) return(NULL)
 
-            compartments = names(row)[names(row) != "t"]
+            compartments = names(row)[names(row) != "t" & !is_total(names(row))]
             vals = paste0(compartments, " = ", signif(as.numeric(row[1, compartments]), 4))
             coord_text = paste0("t = ", t_sel, ":\n", paste(vals, collapse = ",\n"))
 

@@ -25,7 +25,8 @@
 \item{x}{A \code{model_result} object returned by \code{\link[=run_model]{run_model()}}.}
 
 \item{series}{Character vector of series names to display. \code{NULL} (the
-default) shows all compartments and incidence series.}
+default) shows all series except cumulative \code{total_} columns, which are
+only shown when named here.}
 
 \item{overlay}{Optional data frame of observed data to overlay as points.
 Should contain a time column and one or more columns matching

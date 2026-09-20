@@ -13,7 +13,11 @@
 #' and `dt` (the time step size) are also available.
 #'
 #' @param init Named list of initial compartment values (e.g.
-#'   `list(S = 999, I = 1, R = 0)`).
+#'   `list(S = 999, I = 1, R = 0)`), or a function with no arguments that
+#'   returns such a list. Inside the function, parameter names (from
+#'   `params`) and `t` (the start time) can be used as ordinary variables, so
+#'   initial conditions can depend on parameters. The function is re-evaluated
+#'   whenever the model is run with different parameters.
 #' @param params Named list of parameter values. Must include `time`, which
 #'   controls the simulation time span and can be specified as:
 #'   - A single number `N` (duration): simulates from 0 to N with step 1.
@@ -25,8 +29,9 @@
 #'   `c(start, stop, step)` regardless of how it was originally specified.
 #' @param equations A function with no arguments. Use `new(X) = ...` to set
 #'   the next value of each compartment `X`. Compartments whose names start
-#'   with `total_` are treated as cumulative counters; the corresponding
-#'   incidence is computed automatically when plotting.
+#'   with `total_` are treated as cumulative counters: for each `total_X`,
+#'   results also contain the incidence `X` (per unit time), and `total_X` is
+#'   only plotted if requested.
 #' @param options Named list of solver options. No solver options are
 #'   available for difference equation models.
 #'
@@ -54,7 +59,9 @@
 difference_model = function(init, params, equations, options = list())
 {
     # Validate inputs
-    params = validate_inputs(init, params, equations)
+    inputs = validate_inputs(init, params, equations)
+    init = inputs$init
+    params = inputs$params
 
     # Put equations function into correct form
     formals(equations) = alist(t =, .state =, .params =)
@@ -132,7 +139,7 @@ difference_model = function(init, params, equations, options = list())
 
     structure(list(
         type = "difference",
-        init = init, params = params,
+        init = init, init_fn = inputs$init_fn, params = params,
         equations = equations, recorder = recorder,
         options = options,
         shiny = list(ui = shiny_ui, run = shiny_run, defaults = shiny_defaults)
@@ -143,9 +150,9 @@ difference_model = function(init, params, equations, options = list())
 run_model.difference_model = function(model, init = NULL, params = NULL,
     options = NULL, ...)
 {
-    init = modifyList(model$init, init %||% list())
-    params = modifyList(model$params, params %||% list())
-    params = validate_inputs(init, params, ".BYPASS")
+    inputs = resolve_inputs(model, init, params)
+    init = inputs$init
+    params = inputs$params
     params$.dt = params$time[3]
 
     tval = seq(params$time[1], params$time[2], params$time[3])
@@ -190,7 +197,6 @@ run_model.difference_model = function(model, init = NULL, params = NULL,
         attr(data, "dt") = old_attrs$dt
         attr(data, "geom") = old_attrs$geom
     }
-    data = remove_totals(data)
     class(data) = c("model_result", class(data))
 
     standard_checks(data)

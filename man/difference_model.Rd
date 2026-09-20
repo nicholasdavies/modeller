@@ -8,7 +8,11 @@ difference_model(init, params, equations, options = list())
 }
 \arguments{
 \item{init}{Named list of initial compartment values (e.g.
-\code{list(S = 999, I = 1, R = 0)}).}
+\code{list(S = 999, I = 1, R = 0)}), or a function with no arguments that
+returns such a list. Inside the function, parameter names (from
+\code{params}) and \code{t} (the start time) can be used as ordinary variables, so
+initial conditions can depend on parameters. The function is re-evaluated
+whenever the model is run with different parameters.}
 
 \item{params}{Named list of parameter values. Must include \code{time}, which
 controls the simulation time span and can be specified as:
@@ -24,8 +28,9 @@ Inside the equations function, \code{time} is a three-element numeric vector
 
 \item{equations}{A function with no arguments. Use \code{new(X) = ...} to set
 the next value of each compartment \code{X}. Compartments whose names start
-with \code{total_} are treated as cumulative counters; the corresponding
-incidence is computed automatically when plotting.}
+with \code{total_} are treated as cumulative counters: for each \code{total_X},
+results also contain the incidence \code{X} (per unit time), and \code{total_X} is
+only plotted if requested.}
 
 \item{options}{Named list of solver options. No solver options are
 available for difference equation models.}

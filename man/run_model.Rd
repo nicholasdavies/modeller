@@ -10,9 +10,16 @@ run_model(model, init = NULL, params = NULL, options = NULL, ...)
 \item{model}{A model object created by \code{\link[=ode_model]{ode_model()}}, \code{\link[=ssa_model]{ssa_model()}}, or
 \code{\link[=difference_model]{difference_model()}}.}
 
-\item{init}{Named list of initial conditions to override defaults.}
+\item{init}{Named list of initial conditions to override defaults, or a
+function with no arguments returning such a list. As for the \code{init}
+argument of the model constructors, a function can use parameter names
+and \code{t} (the start time) as plain variables. Only the compartments given
+are overridden; each must be a compartment of the model, with the same
+length.}
 
-\item{params}{Named list of parameters to override defaults.}
+\item{params}{Named list of parameters to override defaults. If the model's
+initial conditions were given as a function, it is re-evaluated with these
+parameters.}
 
 \item{options}{Named list of solver options to override defaults.
 
@@ -39,8 +46,10 @@ For difference equation models: no solver options are available.}
 \item{...}{Ignored.}
 }
 \value{
-A \code{model_result} data frame with a \code{t} column and one column per
-compartment. Has attributes \code{dt} (time step; 0 for SSA) and \code{geom}
+A \code{model_result} data frame with a \code{t} column, one column per
+compartment, an incidence column \code{X} for each cumulative \code{total_X}
+compartment, and a column for each quantity passed to \code{record()}. Has
+attributes \code{dt} (time step; 0 for SSA) and \code{geom}
 (\code{"line"} for ODE, \code{"step"} for SSA and difference equation models).
 }
 \description{

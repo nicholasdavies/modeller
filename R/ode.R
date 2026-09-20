@@ -13,7 +13,11 @@
 #' is also available.
 #'
 #' @param init Named list of initial compartment values (e.g.
-#'   `list(S = 999, I = 1, R = 0)`).
+#'   `list(S = 999, I = 1, R = 0)`), or a function with no arguments that
+#'   returns such a list. Inside the function, parameter names (from
+#'   `params`) and `t` (the start time) can be used as ordinary variables, so
+#'   initial conditions can depend on parameters. The function is re-evaluated
+#'   whenever the model is run with different parameters.
 #' @param params Named list of parameter values. Must include `time`, which
 #'   controls the simulation time span and can be specified as:
 #'   - A single number `N` (duration): simulates from 0 to N with step 1.
@@ -25,8 +29,9 @@
 #'   `c(start, stop, step)` regardless of how it was originally specified.
 #' @param equations A function with no arguments. Use `d(X) = ...` to set
 #'   the derivative (rate of change) of each compartment `X`. Compartments
-#'   whose names start with `total_` are treated as cumulative counters; the
-#'   corresponding incidence is computed automatically when plotting.
+#'   whose names start with `total_` are treated as cumulative counters: for
+#'   each `total_X`, results also contain the incidence `X` (per unit time),
+#'   and `total_X` is only plotted if requested.
 #' @param options Named list of solver options. For ODE models the only
 #'   option is `method`, the integration method passed to [deSolve::ode()].
 #'   Default: `list(method = "lsode")`. Can be overridden in [run_model()].
@@ -50,10 +55,24 @@
 #' result = run_model(m)
 #' plot(result)
 #'
+#' # Initial conditions that depend on parameters
+#' m2 = ode_model(
+#'     init = function() list(S = N - I0, I = I0, R = 0),
+#'     params = list(N = 1000, I0 = 5, beta = 0.3, gamma = 0.1, time = 100),
+#'     equations = function() {
+#'         d(S) = -beta * I / N * S
+#'         d(I) =  beta * I / N * S - gamma * I
+#'         d(R) =  gamma * I
+#'     }
+#' )
+#' result = run_model(m2, params = list(I0 = 50))
+#'
 #' @export
 ode_model = function(init, params, equations, options = list())
 {
-    params = validate_inputs(init, params, equations)
+    inputs = validate_inputs(init, params, equations)
+    init = inputs$init
+    params = inputs$params
 
     # Put equations function into correct form
     formals(equations) = alist(t =, .state =, .params =)
@@ -140,7 +159,7 @@ ode_model = function(init, params, equations, options = list())
 
     structure(list(
         type = "ODE",
-        init = init, params = params,
+        init = init, init_fn = inputs$init_fn, params = params,
         equations = equations, recorder = recorder,
         options = modifyList(list(method = "lsode"), options),
         shiny = list(ui = shiny_ui, run = shiny_run, defaults = shiny_defaults)
@@ -151,9 +170,9 @@ ode_model = function(init, params, equations, options = list())
 run_model.ode_model = function(model, init = NULL, params = NULL,
     options = NULL, ...)
 {
-    init = modifyList(model$init, init %||% list())
-    params = modifyList(model$params, params %||% list())
-    params = validate_inputs(init, params, ".BYPASS")
+    inputs = resolve_inputs(model, init, params)
+    init = inputs$init
+    params = inputs$params
     options = modifyList(model$options, options %||% list())
 
     tval = seq(params$time[1], params$time[2], params$time[3])
@@ -168,7 +187,6 @@ run_model.ode_model = function(model, init = NULL, params = NULL,
     attr(data, "geom") = "line"
     data = compute_incidence(data)
     data = compute_recordings(model, params, data)
-    data = remove_totals(data)
     class(data) = c("model_result", class(data))
 
     standard_checks(data)

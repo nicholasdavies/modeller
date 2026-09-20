@@ -12,8 +12,12 @@
 #' makes them available automatically. The variable `t` (the current time)
 #' is also available.
 #'
-#' @param init Named list of initial compartment values, typically integers
-#'   (e.g. `list(S = 999, I = 1, R = 0)`).
+#' @param init Named list of initial compartment values, which should be
+#'   whole numbers (e.g. `list(S = 999, I = 1, R = 0)`), or a function with
+#'   no arguments that returns such a list. Inside the function, parameter
+#'   names (from `params`) and `t` (the start time) can be used as ordinary
+#'   variables, so initial conditions can depend on parameters. The function
+#'   is re-evaluated whenever the model is run with different parameters.
 #' @param params Named list of parameter values. Must include `time`, which
 #'   controls the simulation time span and can be specified as:
 #'   - A single number `N` (duration): simulates from 0 to N.
@@ -25,8 +29,9 @@
 #'   `c(start, stop, step)` regardless of how it was originally specified.
 #' @param equations A function with no arguments. Use `tx(A -> B) = rate` to
 #'   define transitions between compartments. Compartments whose names start
-#'   with `total_` are treated as cumulative counters; the corresponding
-#'   incidence is computed automatically when plotting.
+#'   with `total_` are treated as cumulative counters: for each `total_X`,
+#'   results also contain the incidence `X` (per unit time), and `total_X` is
+#'   only plotted if requested.
 #' @param options Named list of solver options. For SSA models:
 #'   - `method`: `"adaptive-tau"` (default) or `"exact"`.
 #'   - `seed`: random number seed, or `NULL` (default) for
@@ -60,7 +65,9 @@
 #' @export
 ssa_model = function(init, params, equations, options = list())
 {
-    params = validate_inputs(init, params, equations)
+    inputs = validate_inputs(init, params, equations)
+    init = inputs$init
+    params = inputs$params
 
     # Build transitions and edit body of equations function. The arrow is
     # extracted post-match (rather than baked into the elixir pattern)
@@ -203,7 +210,7 @@ ssa_model = function(init, params, equations, options = list())
 
     structure(list(
         type = "SSA",
-        init = init, params = params,
+        init = init, init_fn = inputs$init_fn, params = params,
         equations = equations, recorder = recorder,
         transitions = transitions,
         options = default_options,
@@ -215,9 +222,9 @@ ssa_model = function(init, params, equations, options = list())
 run_model.ssa_model = function(model, init = NULL, params = NULL,
     options = NULL, ...)
 {
-    init = modifyList(model$init, init %||% list())
-    params = modifyList(model$params, params %||% list())
-    params = validate_inputs(init, params, ".BYPASS")
+    inputs = resolve_inputs(model, init, params)
+    init = inputs$init
+    params = inputs$params
     options = modifyList(model$options, options %||% list())
 
     if (!is.null(options$seed)) set.seed(options$seed)
@@ -239,7 +246,6 @@ run_model.ssa_model = function(model, init = NULL, params = NULL,
     attr(data, "geom") = "step"
     data = compute_incidence(data)
     data = compute_recordings(model, params, data)
-    data = remove_totals(data)
     class(data) = c("model_result", class(data))
 
     standard_checks(data)

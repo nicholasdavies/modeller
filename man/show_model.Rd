@@ -29,6 +29,12 @@ for adjusting initial conditions, parameters, and solver settings, with
 live-updating plots and data tables. Observed data can be overlaid for
 visual comparison.
 }
+\details{
+If the model's initial conditions were given as a function, they are
+shown read-only, recomputed from the current parameters on each run.
+Cumulative \code{total_} compartments are shown in the Table tab but are not
+plotted; their incidence series are plotted instead.
+}
 \examples{
 m = ode_model(
     init = list(S = 999, I = 1, R = 0),
